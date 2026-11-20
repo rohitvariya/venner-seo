@@ -61,6 +61,18 @@ body {
   .prose-article li {
     @apply my-1 leading-7;
   }
+  .prose-article table {
+    @apply my-4 w-full border-collapse text-sm;
+  }
+  .prose-article th {
+    @apply border border-slate-200 bg-slate-50 px-3 py-2 text-left font-semibold;
+  }
+  .prose-article td {
+    @apply border border-slate-200 px-3 py-2 align-top text-slate-700;
+  }
+  .prose-article strong {
+    @apply font-semibold text-slate-900;
+  }
   .prose-article a {
     @apply text-brand-500 underline;
   }

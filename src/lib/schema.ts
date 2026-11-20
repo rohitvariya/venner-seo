@@ -19,6 +19,27 @@ export const articleStatusEnum = pgEnum("article_status", [
 ]);
 export const integrationTypeEnum = pgEnum("integration_type", ["WORDPRESS", "SHOPIFY", "GSC"]);
 
+/** Everything content is built from. Auto-filled from the website scan, editable on the Business page. */
+export type Blueprint = {
+  idealCustomer: string;
+  differentiators: string[]; // why people choose this business; proof points like numbers and awards
+  facts: string[]; // facts every article must get right (prices, hours, qualifications…)
+  targetSearches: string[]; // searches the business wants to win
+  likedArticles: string[]; // URLs of articles whose style the owner likes
+  author: { name: string; jobTitle: string; bio: string; expertise: string[]; aboutUrl: string; linkedin: string } | null;
+};
+
+export const emptyBlueprint: Blueprint = {
+  idealCustomer: "",
+  differentiators: [],
+  facts: [],
+  targetSearches: [],
+  likedArticles: [],
+  author: null,
+};
+
+export type FactIssue = { claim: string; problem: string; suggestion: string };
+
 export type OnboardingStep = (typeof onboardingStepEnum.enumValues)[number];
 export type ArticleStatus = (typeof articleStatusEnum.enumValues)[number];
 export type KeywordStatus = (typeof keywordStatusEnum.enumValues)[number];
@@ -71,6 +92,7 @@ export const sites = pgTable(
     scanStatus: jobStatusEnum("scan_status").notNull().default("IDLE"),
     scanError: text("scan_error"),
     articlesPerMonth: integer("articles_per_month").notNull().default(8),
+    blueprint: jsonb("blueprint").$type<Blueprint>().notNull().default(emptyBlueprint),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -146,6 +168,8 @@ export const articles = pgTable(
     faq: jsonb("faq").$type<{ question: string; answer: string }[]>(),
     seoScore: integer("seo_score"),
     seoChecks: jsonb("seo_checks").$type<{ id: string; label: string; passed: boolean; weight: number }[]>(),
+    factIssues: jsonb("fact_issues").$type<FactIssue[]>(),
+    heroImageUrl: text("hero_image_url"),
     status: articleStatusEnum("status").notNull().default("IDEA"),
     plannedFor: timestamp("planned_for", { withTimezone: true }),
     scheduledAt: timestamp("scheduled_at", { withTimezone: true }),

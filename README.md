@@ -2,12 +2,12 @@
 
 AI SEO platform for local businesses and agencies. Add a website and it:
 
-1. **Scans the site** and pulls out the business profile, services, location and service pages (Claude).
+1. **Scans the site** and pulls out the business profile, services, location and service pages, and pre-fills the **Business Blueprint** (ideal customer, proof points, facts, target searches) (Claude).
 2. **Finds local competitors** from Google results (DataForSEO, optional).
 3. **Builds a keyword plan** grouped by service, with search volume and competition (Claude + DataForSEO).
-4. **Fills a content calendar** (default 8 articles/month) and **writes each article** from a brief: grounded in the business's real services, internal links to its own pages, FAQs, and a call to action with real contact details.
-5. **Scores every article** with a 12-point on-page SEO checklist.
-6. Lets you **edit, approve, schedule and publish** to **WordPress** or **Shopify**. Posts include FAQPage schema.
+4. **Fills a content calendar** (default 8 articles/month) and **writes each article** (2,500–3,500 words) from a brief: "At a glance" summary, comparison table, step-by-step list, checklist, FAQs and key takeaways. Each article uses the Blueprint's real proof points, links to service pages and to the site's own published articles (topic clusters), and ends with a call to action using real contact details.
+5. **Fact-checks every draft** against the Blueprint and flags invented numbers or claims. **Scores every article** with a 15-point on-page SEO checklist, and shows a Google preview, search details and a status pipeline.
+6. Lets you **edit, approve, schedule and publish** to **WordPress** or **Shopify**. Posts include an author byline and bio box, plus BlogPosting and FAQPage schema.
 7. **Tracks results** from **Google Search Console**: clicks, impressions, average position and top searches.
 
 Nothing is published without approval. One login can manage many client websites (workspaces).

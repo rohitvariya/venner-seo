@@ -1,4 +1,4 @@
-import type { Site, Service, ServiceArea, SitePage } from "../schema";
+import type { Blueprint, Site, Service, ServiceArea, SitePage } from "../schema";
 import { structured } from "../ai";
 import type { CrawledPage } from "../crawl";
 
@@ -15,6 +15,10 @@ export type BusinessAnalysis = {
   toneOfVoice: string;
   language: string;
   servicePageUrls: string[];
+  idealCustomer: string;
+  differentiators: string[];
+  facts: string[];
+  targetSearches: string[];
 };
 
 export async function analyzeBusiness(domain: string, pages: CrawledPage[]): Promise<BusinessAnalysis> {
@@ -30,8 +34,14 @@ export async function analyzeBusiness(domain: string, pages: CrawledPage[]): Pro
     prompt: `Website: ${domain}\n\nCrawled pages:\n\n${corpus}\n\nExtract the business profile. ` +
       "List 6-12 concrete services the business sells (customer-facing names a buyer would search for), " +
       "each with the URL of the page that best describes it, if one exists in the crawl. " +
-      "servicePageUrls = crawled URLs that are service or product pages.",
+      "servicePageUrls = crawled URLs that are service or product pages. " +
+      "differentiators = reasons customers choose this business, copied as stated on the site, including any " +
+      "numbers, years in business, ratings, awards, certifications or client counts (only if the site states them). " +
+      "facts = hard facts any article must get right (prices, opening hours, years founded, team size, guarantees, " +
+      "qualifications), only if stated. targetSearches = 15-30 short search phrases a buyer would type to find these " +
+      "services (lowercase, no brand names).",
     schemaName: "business_profile",
+    maxTokens: 6000,
     schema: {
       type: "object",
       properties: {
@@ -54,10 +64,15 @@ export async function analyzeBusiness(domain: string, pages: CrawledPage[]): Pro
         toneOfVoice: { type: "string", description: "How the brand writes, e.g. 'professional, practical, friendly'" },
         language: { type: "string", description: "ISO 639-1 code of the site's main language" },
         servicePageUrls: { type: "array", items: { type: "string" } },
+        idealCustomer: { type: "string", description: "Who the business serves, one sentence" },
+        differentiators: { type: "array", items: { type: "string" } },
+        facts: { type: "array", items: { type: "string" } },
+        targetSearches: { type: "array", items: { type: "string" } },
       },
       required: [
         "businessName", "category", "summary", "services", "country", "state", "city",
         "streetAddress", "phone", "toneOfVoice", "language", "servicePageUrls",
+        "idealCustomer", "differentiators", "facts", "targetSearches",
       ],
     },
   });
@@ -69,12 +84,19 @@ export function profileContext(
   services: Service[],
   areas: ServiceArea[],
   pages: Pick<SitePage, "url" | "title" | "isService">[],
+  ownArticles: { title: string; url: string }[] = [],
 ) {
+  const bp: Blueprint = site.blueprint;
   const linkable = pages
     .filter((p) => p.isService || /about|contact/i.test(p.url))
     .slice(0, 30)
     .map((p) => `- ${p.title ?? p.url} → ${p.url}`)
     .join("\n");
+  const articles = ownArticles
+    .slice(0, 40)
+    .map((a) => `- ${a.title} → ${a.url}`)
+    .join("\n");
+  const list = (label: string, items: string[]) => items.length > 0 && `${label}:\n${items.map((i) => `- ${i}`).join("\n")}`;
   return [
     `Business: ${site.businessName ?? site.domain} (${site.domain})`,
     site.category && `Category: ${site.category}`,
@@ -84,7 +106,13 @@ export function profileContext(
     areas.length > 0 && `Service areas: ${areas.map((a) => a.name).join(", ")}`,
     site.phone && `Phone: ${site.phone}`,
     site.toneOfVoice && `Tone of voice: ${site.toneOfVoice}`,
+    bp.idealCustomer && `Ideal customer: ${bp.idealCustomer}`,
+    list("Why customers choose them (use these proof points; never invent others)", bp.differentiators),
+    list("Facts every article MUST get right (never contradict, never invent other numbers)", bp.facts),
+    bp.author?.name &&
+      `Author: ${bp.author.name}${bp.author.jobTitle ? `, ${bp.author.jobTitle}` : ""}${bp.author.expertise.length ? ` (expertise: ${bp.author.expertise.join(", ")})` : ""}`,
     linkable && `Pages on the site you may link to (internal links):\n${linkable}`,
+    articles && `Published blog articles on the site you may link to (related reading):\n${articles}`,
   ]
     .filter(Boolean)
     .join("\n");

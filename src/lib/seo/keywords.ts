@@ -3,13 +3,15 @@ import { dataForSeoEnabled, keywordMetrics } from "../dataforseo";
 
 export type KeywordIdea = { phrase: string; intent: string; cluster: string };
 
-export async function keywordIdeas(context: string, count = 40): Promise<KeywordIdea[]> {
+export async function keywordIdeas(context: string, count = 40, seeds: string[] = []): Promise<KeywordIdea[]> {
   const out = await structured<{ keywords: KeywordIdea[] }>({
     system:
       "You are a senior SEO strategist for local and small businesses. You choose keywords a business can " +
       "realistically rank for with helpful blog content: long-tail questions, comparisons, costs, how-to, " +
       "and local-intent phrases. Avoid brand names of other companies and avoid keywords unrelated to the services.",
-    prompt: `${context}\n\nSuggest ${count} blog keywords for this business. Mix informational (guides, how-to, ` +
+    prompt: `${context}\n\n` +
+      (seeds.length ? `The owner wants to win these searches (use them as seeds for long-tail topics):\n- ${seeds.join("\n- ")}\n\n` : "") +
+      `Suggest ${count} blog keywords for this business. Mix informational (guides, how-to, ` +
       "questions), commercial investigation (cost, best, vs, choosing) and local-intent phrases using the city/" +
       "service areas. Group them into topic clusters named after the related service.",
     schemaName: "keyword_ideas",

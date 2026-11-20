@@ -1,15 +1,14 @@
 import { requireSite } from "@/lib/auth";
 import { asc, eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
-import { addArea, addCompetitor, removeArea, removeCompetitor, rescanSite, saveContact, saveSettings, toggleService, addService } from "@/app/actions";
+import { addArea, removeArea, rescanSite, saveContact, saveSettings, toggleService, addService } from "@/app/actions";
 import { SubmitButton } from "@/components/ui";
 
 export default async function SettingsPage({ params }: { params: Promise<{ siteId: string }> }) {
   const { siteId } = await params;
   const { site } = await requireSite(siteId);
-  const [services, competitors, areas] = await Promise.all([
+  const [services, areas] = await Promise.all([
     db.query.services.findMany({ where: eq(schema.services.siteId, siteId), orderBy: asc(schema.services.name) }),
-    db.query.competitors.findMany({ where: eq(schema.competitors.siteId, siteId) }),
     db.query.serviceAreas.findMany({ where: eq(schema.serviceAreas.siteId, siteId) }),
   ]);
 
@@ -28,10 +27,6 @@ export default async function SettingsPage({ params }: { params: Promise<{ siteI
             <label className="label" htmlFor="language">Language code</label>
             <input id="language" name="language" className="input" defaultValue={site.language} placeholder="en, hi, gu…" />
           </div>
-        </div>
-        <div>
-          <label className="label" htmlFor="toneOfVoice">Tone of voice</label>
-          <input id="toneOfVoice" name="toneOfVoice" className="input" defaultValue={site.toneOfVoice ?? ""} />
         </div>
         <SubmitButton>Save</SubmitButton>
       </form>
@@ -89,20 +84,6 @@ export default async function SettingsPage({ params }: { params: Promise<{ siteI
         </form>
       </section>
 
-      <section className="card space-y-3">
-        <h2 className="font-semibold">Competitors</h2>
-        {competitors.map((c) => (
-          <div key={c.id} className="flex items-center justify-between text-sm">
-            <span>{c.name} <span className="text-slate-400">· {c.domain}</span></span>
-            <form action={removeCompetitor.bind(null, siteId, c.id)}><button className="text-slate-400 hover:text-red-500">Remove</button></form>
-          </div>
-        ))}
-        <form action={addCompetitor.bind(null, siteId)} className="flex gap-2">
-          <input name="name" className="input" placeholder="Name" />
-          <input name="domain" className="input" placeholder="domain.com" />
-          <button className="btn-secondary">Add</button>
-        </form>
-      </section>
     </div>
   );
 }

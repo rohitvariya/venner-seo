@@ -8,10 +8,12 @@ import { ArticleEditor } from "@/components/article-editor";
 import { ScoreBadge, StatusBadge } from "@/components/badges";
 import { AutoRefresh, SubmitButton } from "@/components/ui";
 import type { SeoCheck } from "@/lib/seo/score";
+import type { Brief } from "@/lib/seo/writer";
+import { FactIssues, GooglePreview, Pipeline, SearchDetails } from "@/components/article-panels";
 
 export default async function ArticlePage({ params }: { params: Promise<{ siteId: string; articleId: string }> }) {
   const { siteId, articleId } = await params;
-  await requireSite(siteId);
+  const { site } = await requireSite(siteId);
   const article = await db.query.articles.findFirst({
     where: and(eq(schema.articles.id, articleId), eq(schema.articles.siteId, siteId)),
     with: { keyword: true },
@@ -22,6 +24,7 @@ export default async function ArticlePage({ params }: { params: Promise<{ siteId
   });
   const busy = ["IDEA", "WRITING", "PUBLISHING"].includes(article.status);
   const checks: SeoCheck[] = article.seoChecks ?? [];
+  const words = (article.contentMd ?? "").split(/\s+/).filter(Boolean).length;
   const canPublish = !!article.contentMd && ["REVIEW", "APPROVED", "FAILED", "PUBLISHED"].includes(article.status);
 
   return (
@@ -55,7 +58,7 @@ export default async function ArticlePage({ params }: { params: Promise<{ siteId
           {article.status === "PUBLISHING" ? "Publishing…" : "Writing this article. This takes about a minute."}
         </div>
       ) : (
-        <div className="grid gap-6 xl:grid-cols-[1fr_300px]">
+        <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
           <ArticleEditor siteId={siteId} article={article} />
           <aside className="space-y-4">
             <div className="card space-y-3">
@@ -84,6 +87,12 @@ export default async function ArticlePage({ params }: { params: Promise<{ siteId
                 </form>
               )}
             </div>
+            <FactIssues issues={article.factIssues} />
+            <Pipeline status={article.status} />
+            <GooglePreview domain={site.domain} slug={article.slug} metaTitle={article.metaTitle}
+              metaDescription={article.metaDescription} siteName={site.businessName ?? site.domain} />
+            <SearchDetails keyword={article.keyword?.phrase ?? null} searchVolume={article.keyword?.searchVolume ?? null}
+              brief={article.brief as Brief | null} words={words} />
             <div className="card">
               <h2 className="mb-2 font-semibold">SEO checklist</h2>
               <ul className="space-y-1.5 text-sm">

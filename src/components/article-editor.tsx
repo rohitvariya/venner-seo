@@ -31,6 +31,10 @@ export function ArticleEditor({ siteId, article }: { siteId: string; article: Ar
         </div>
       </div>
       <div>
+        <label className="label" htmlFor="heroImageUrl">Hero image URL <span className="font-normal text-slate-400">(optional, shown at the top of the post)</span></label>
+        <input id="heroImageUrl" name="heroImageUrl" className="input" defaultValue={article.heroImageUrl ?? ""} placeholder="https://…/image.jpg" />
+      </div>
+      <div>
         <label className="label" htmlFor="metaDescription">Meta description <span className="font-normal text-slate-400">({metaDesc.length}/160)</span></label>
         <textarea id="metaDescription" name="metaDescription" rows={2} className="input" value={metaDesc} onChange={(e) => setMetaDesc(e.target.value)} />
       </div>

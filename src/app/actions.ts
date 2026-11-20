@@ -186,7 +186,6 @@ export async function saveSettings(siteId: string, form: FormData) {
     .update(sites)
     .set({
       articlesPerMonth: n,
-      toneOfVoice: String(form.get("toneOfVoice") ?? "").trim() || null,
       language: String(form.get("language") ?? "en").trim() || "en",
     })
     .where(eq(sites.id, siteId));
@@ -212,13 +211,15 @@ export async function saveArticle(siteId: string, articleId: string, _: FormStat
   const metaTitle = String(form.get("metaTitle") ?? "").trim();
   const metaDescription = String(form.get("metaDescription") ?? "").trim();
   const contentMd = String(form.get("contentMd") ?? "");
+  const heroRaw = String(form.get("heroImageUrl") ?? "").trim();
   if (!title) return { error: "Title is required." };
+  if (heroRaw && !/^https:\/\/\S+$/.test(heroRaw)) return { error: "Hero image must be an https:// link." };
   const { score, checks } = scoreArticle({
     keyword: article.keyword?.phrase ?? null, title, metaTitle, metaDescription, slug, contentMd, siteDomain: site.domain,
   });
   await db
     .update(articles)
-    .set({ title, slug, metaTitle, metaDescription, contentMd, seoScore: score, seoChecks: checks })
+    .set({ title, slug, metaTitle, metaDescription, contentMd, heroImageUrl: heroRaw || null, seoScore: score, seoChecks: checks })
     .where(eq(articles.id, articleId));
   revalidatePath(`/sites/${siteId}/content/${articleId}`);
   return { ok: "Saved" };
@@ -337,4 +338,43 @@ export async function syncGscNow(siteId: string) {
   await requireSite(siteId);
   await enqueue("sync-gsc", { siteId });
   revalidatePath(`/sites/${siteId}`);
+}
+
+// ---------- Business Blueprint ----------
+
+const lines = (v: FormDataEntryValue | null) =>
+  String(v ?? "")
+    .split("\n")
+    .map((l) => l.replace(/^[-•*]\s*/, "").trim())
+    .filter(Boolean);
+
+/** Saves whichever Blueprint fields are present in the form (each tab posts its own subset). */
+export async function saveBlueprint(siteId: string, _: FormState, form: FormData): Promise<FormState> {
+  const { site } = await requireSite(siteId);
+  const bp = { ...site.blueprint };
+  const has = (k: string) => form.has(k);
+  if (has("idealCustomer")) bp.idealCustomer = String(form.get("idealCustomer")).trim();
+  if (has("differentiators")) bp.differentiators = lines(form.get("differentiators")).slice(0, 30);
+  if (has("facts")) bp.facts = lines(form.get("facts")).slice(0, 50);
+  if (has("targetSearches")) bp.targetSearches = [...new Set(lines(form.get("targetSearches")).map((l) => l.toLowerCase()))].slice(0, 60);
+  if (has("likedArticles")) {
+    bp.likedArticles = lines(form.get("likedArticles")).filter((u) => /^https?:\/\//.test(u)).slice(0, 5);
+  }
+  if (has("authorName")) {
+    const name = String(form.get("authorName")).trim();
+    bp.author = name
+      ? {
+          name,
+          jobTitle: String(form.get("authorJobTitle") ?? "").trim(),
+          bio: String(form.get("authorBio") ?? "").trim(),
+          expertise: lines(form.get("authorExpertise")).slice(0, 10),
+          aboutUrl: String(form.get("authorAboutUrl") ?? "").trim(),
+          linkedin: String(form.get("authorLinkedin") ?? "").trim(),
+        }
+      : null;
+  }
+  const tone = has("toneOfVoice") ? String(form.get("toneOfVoice")).trim() || null : site.toneOfVoice;
+  await db.update(sites).set({ blueprint: bp, toneOfVoice: tone }).where(eq(sites.id, siteId));
+  revalidatePath(`/sites/${siteId}`, "layout");
+  return { ok: "Saved" };
 }

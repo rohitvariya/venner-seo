@@ -3,7 +3,7 @@ import { db, schema } from "./db";
 import { crawlSite } from "./crawl";
 import { analyzeBusiness, profileContext } from "./seo/profile";
 import { enrichKeywords, keywordIdeas, pickForCalendar } from "./seo/keywords";
-import { createBrief, writeArticle } from "./seo/writer";
+import { createBrief, factCheck, writeArticle } from "./seo/writer";
 import { scoreArticle } from "./seo/score";
 import { dataForSeoEnabled, organicResults } from "./dataforseo";
 import { decryptJson } from "./crypto";
@@ -20,13 +20,23 @@ const NOT_COMPETITORS = /(justdial|indiamart|sulekha|clutch|goodfirms|linkedin|f
 
 const errMsg = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
-export async function loadContext(siteId: string) {
+export async function loadContext(siteId: string, excludeArticleId?: string) {
   const site = await db.query.sites.findFirst({
     where: eq(sites.id, siteId),
     with: { services: true, areas: true, pages: { columns: { url: true, title: true, isService: true } } },
   });
   if (!site) throw new Error(`Site ${siteId} not found`);
-  return { site, context: profileContext(site, site.services, site.areas, site.pages) };
+  // Published articles become internal-link targets, building topic clusters over time.
+  const published = await db.query.articles.findMany({
+    where: and(eq(articles.siteId, siteId), eq(articles.status, "PUBLISHED"), isNotNull(articles.publishedUrl)),
+    columns: { id: true, title: true, publishedUrl: true },
+    orderBy: desc(articles.publishedAt),
+    limit: 60,
+  });
+  const own = published
+    .filter((a) => a.id !== excludeArticleId)
+    .map((a) => ({ title: a.title, url: a.publishedUrl! }));
+  return { site, context: profileContext(site, site.services, site.areas, site.pages, own) };
 }
 
 export async function scanSite(siteId: string) {
@@ -60,7 +70,17 @@ export async function scanSite(siteId: string) {
           city,
           streetAddress: site.streetAddress ?? a.streetAddress,
           phone: site.phone ?? a.phone,
-          toneOfVoice: a.toneOfVoice,
+          toneOfVoice: site.toneOfVoice ?? a.toneOfVoice,
+          // Fill blueprint gaps from the scan, never overwrite what the owner already entered.
+          blueprint: {
+            ...site.blueprint,
+            idealCustomer: site.blueprint.idealCustomer || a.idealCustomer,
+            differentiators: site.blueprint.differentiators.length ? site.blueprint.differentiators : a.differentiators,
+            facts: site.blueprint.facts.length ? site.blueprint.facts : a.facts,
+            targetSearches: site.blueprint.targetSearches.length
+              ? site.blueprint.targetSearches
+              : [...new Set(a.targetSearches.map((t) => t.toLowerCase().trim()))].slice(0, 30),
+          },
         })
         .where(eq(sites.id, siteId));
       const [{ n }] = await tx.select({ n: sql<number>`count(*)::int` }).from(serviceAreas).where(eq(serviceAreas.siteId, siteId));
@@ -103,7 +123,7 @@ async function discoverCompetitors(siteId: string, ownDomain: string, service: s
 /** Builds the keyword list and fills the content calendar with IDEA articles, then queues writing. */
 export async function planKeywords(siteId: string) {
   const { site, context } = await loadContext(siteId);
-  const ideas = await keywordIdeas(context, 40);
+  const ideas = await keywordIdeas(context, 40, site.blueprint.targetSearches);
   const scored = await enrichKeywords(ideas, site.country);
   if (scored.length) {
     await db
@@ -144,7 +164,7 @@ export async function writeArticleJob(articleId: string) {
   const article = await db.query.articles.findFirst({ where: eq(articles.id, articleId), with: { keyword: true } });
   if (!article) return;
   try {
-    const { site, context } = await loadContext(article.siteId);
+    const { site, context } = await loadContext(article.siteId, article.id);
     const keyword = article.keyword?.phrase ?? article.title;
     const others = await db.query.articles.findMany({
       where: and(eq(articles.siteId, site.id), ne(articles.id, article.id), notInArray(articles.status, ["IDEA", "WRITING"])),
@@ -152,6 +172,12 @@ export async function writeArticleJob(articleId: string) {
     });
     const brief = await createBrief(context, keyword, others.map((o) => o.title));
     const contentMd = await writeArticle(context, keyword, brief, site.language);
+    let factIssues: Awaited<ReturnType<typeof factCheck>> = [];
+    try {
+      factIssues = await factCheck(context, contentMd);
+    } catch (err) {
+      console.error("Fact check failed, continuing:", err);
+    }
     const { score, checks } = scoreArticle({
       keyword,
       title: brief.title,
@@ -173,6 +199,7 @@ export async function writeArticleJob(articleId: string) {
         contentMd,
         seoScore: score,
         seoChecks: checks,
+        factIssues,
         status: "REVIEW",
       })
       .where(eq(articles.id, articleId));
@@ -198,7 +225,15 @@ export async function publishArticleJob(articleId: string) {
   }
   await db.update(articles).set({ status: "PUBLISHING", error: null }).where(eq(articles.id, articleId));
   try {
-    const html = articleHtml(article.contentMd, article.faq);
+    const html = articleHtml(article.contentMd, article.faq, {
+      title: article.title,
+      description: article.metaDescription,
+      url: article.publishedUrl,
+      heroImageUrl: article.heroImageUrl,
+      author: article.site.blueprint.author,
+      publisher: article.site.businessName ?? article.site.domain,
+      datePublished: article.publishedAt ?? new Date(),
+    });
     const result =
       integration.type === "WORDPRESS"
         ? await publishToWordPress(decryptJson<WordPressSecret>(integration.secret), {
@@ -214,7 +249,7 @@ export async function publishArticleJob(articleId: string) {
             slug: article.slug,
             html,
             excerpt: article.metaDescription,
-            author: article.site.businessName ?? article.site.domain,
+            author: article.site.blueprint.author?.name || article.site.businessName || article.site.domain,
             published: true,
             externalId: article.externalId,
           });
