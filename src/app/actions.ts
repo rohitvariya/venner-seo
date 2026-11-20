@@ -1,0 +1,340 @@
+"use server";
+
+import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
+import { and, eq } from "drizzle-orm";
+import { z } from "zod";
+import { db, schema } from "@/lib/db";
+import { createSession, destroySession, hashPassword, requireSite, requireUser, verifyPassword } from "@/lib/auth";
+import { enqueue } from "@/lib/queue";
+import { normalizeDomain } from "@/lib/crawl";
+import { encryptJson } from "@/lib/crypto";
+import { scoreArticle } from "@/lib/seo/score";
+import { testWordPress } from "@/lib/publish/wordpress";
+import { listBlogs } from "@/lib/publish/shopify";
+import type { IntegrationType, OnboardingStep } from "@/lib/schema";
+
+const { users, workspaces, memberships, sites, services, competitors, serviceAreas, articles, keywords, integrations } = schema;
+
+export type FormState = { error?: string; ok?: string } | undefined;
+
+const isUniqueViolation = (e: unknown) =>
+  typeof e === "object" && e !== null && "code" in e && (e as { code: string }).code === "23505";
+
+// ---------- Auth ----------
+
+const credentials = z.object({
+  email: z.string().email("Enter a valid email").transform((s) => s.toLowerCase().trim()),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+});
+
+export async function signup(_: FormState, form: FormData): Promise<FormState> {
+  const parsed = credentials
+    .extend({ name: z.string().min(1, "Enter your name"), company: z.string().min(1, "Enter a company or agency name") })
+    .safeParse(Object.fromEntries(form));
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+  const { email, password, name, company } = parsed.data;
+  if (await db.query.users.findFirst({ where: eq(users.email, email) })) {
+    return { error: "An account with this email already exists." };
+  }
+  const passwordHash = await hashPassword(password);
+  const userId = await db.transaction(async (tx) => {
+    const [user] = await tx.insert(users).values({ email, name, passwordHash }).returning({ id: users.id });
+    const [ws] = await tx.insert(workspaces).values({ name: company }).returning({ id: workspaces.id });
+    await tx.insert(memberships).values({ userId: user.id, workspaceId: ws.id, role: "OWNER" });
+    return user.id;
+  });
+  await createSession(userId);
+  redirect("/sites");
+}
+
+export async function login(_: FormState, form: FormData): Promise<FormState> {
+  const parsed = credentials.safeParse(Object.fromEntries(form));
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+  const user = await db.query.users.findFirst({ where: eq(users.email, parsed.data.email) });
+  if (!user || !(await verifyPassword(parsed.data.password, user.passwordHash))) {
+    return { error: "Wrong email or password." };
+  }
+  await createSession(user.id);
+  redirect("/sites");
+}
+
+export async function logout() {
+  await destroySession();
+  redirect("/login");
+}
+
+// ---------- Sites & onboarding ----------
+
+export async function addSite(_: FormState, form: FormData): Promise<FormState> {
+  const { workspace } = await requireUser();
+  const domain = normalizeDomain(String(form.get("domain") ?? ""));
+  const phone = String(form.get("phone") ?? "").trim();
+  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain)) return { error: "Enter a website like yourbusiness.com" };
+  if (!/^\+\d[\d\s-]{6,}$/.test(phone)) return { error: "Add a phone number with the country code, like +91 98765 43210." };
+  let siteId: string;
+  try {
+    const [site] = await db
+      .insert(sites)
+      .values({ workspaceId: workspace.id, domain, phone, onboardingStep: "SERVICES", scanStatus: "QUEUED" })
+      .returning({ id: sites.id });
+    siteId = site.id;
+  } catch (e) {
+    if (isUniqueViolation(e)) return { error: "This website is already in your workspace." };
+    throw e;
+  }
+  await enqueue("scan-site", { siteId });
+  redirect(`/sites/${siteId}/onboarding`);
+}
+
+export async function rescanSite(siteId: string) {
+  await requireSite(siteId);
+  await db.update(sites).set({ scanStatus: "QUEUED", scanError: null }).where(eq(sites.id, siteId));
+  await enqueue("scan-site", { siteId });
+  revalidatePath(`/sites/${siteId}`, "layout");
+}
+
+export async function setStep(siteId: string, step: Exclude<OnboardingStep, "WEBSITE" | "DONE">) {
+  await requireSite(siteId);
+  await db.update(sites).set({ onboardingStep: step }).where(eq(sites.id, siteId));
+  revalidatePath(`/sites/${siteId}/onboarding`);
+}
+
+export async function toggleService(siteId: string, serviceId: string) {
+  await requireSite(siteId);
+  const s = await db.query.services.findFirst({ where: and(eq(services.id, serviceId), eq(services.siteId, siteId)) });
+  if (s) await db.update(services).set({ selected: !s.selected }).where(eq(services.id, s.id));
+  revalidatePath(`/sites/${siteId}`, "layout");
+}
+
+export async function addService(siteId: string, form: FormData) {
+  await requireSite(siteId);
+  const name = String(form.get("name") ?? "").trim();
+  if (name) await db.insert(services).values({ siteId, name });
+  revalidatePath(`/sites/${siteId}`, "layout");
+}
+
+export async function addCompetitor(siteId: string, form: FormData) {
+  await requireSite(siteId);
+  const name = String(form.get("name") ?? "").trim();
+  const domain = normalizeDomain(String(form.get("domain") ?? ""));
+  if (name && domain) await db.insert(competitors).values({ siteId, name, domain });
+  revalidatePath(`/sites/${siteId}`, "layout");
+}
+
+export async function removeCompetitor(siteId: string, id: string) {
+  await requireSite(siteId);
+  await db.delete(competitors).where(and(eq(competitors.id, id), eq(competitors.siteId, siteId)));
+  revalidatePath(`/sites/${siteId}`, "layout");
+}
+
+export async function saveContact(siteId: string, form: FormData) {
+  const { site } = await requireSite(siteId);
+  const get = (k: string) => String(form.get(k) ?? "").trim() || null;
+  await db
+    .update(sites)
+    .set({
+      businessName: get("businessName"),
+      country: get("country"),
+      state: get("state"),
+      city: get("city"),
+      streetAddress: get("streetAddress"),
+      phone: get("phone"),
+      ...(site.onboardingStep === "CONTACT" ? { onboardingStep: "AREAS" as const } : {}),
+    })
+    .where(eq(sites.id, siteId));
+  revalidatePath(`/sites/${siteId}`, "layout");
+}
+
+export async function addArea(siteId: string, form: FormData) {
+  await requireSite(siteId);
+  const name = String(form.get("name") ?? "").trim();
+  if (name) await db.insert(serviceAreas).values({ siteId, name });
+  revalidatePath(`/sites/${siteId}`, "layout");
+}
+
+export async function removeArea(siteId: string, id: string) {
+  await requireSite(siteId);
+  await db.delete(serviceAreas).where(and(eq(serviceAreas.id, id), eq(serviceAreas.siteId, siteId)));
+  revalidatePath(`/sites/${siteId}`, "layout");
+}
+
+/** Final onboarding step: builds the keyword plan and starts writing the first articles. */
+export async function finishOnboarding(siteId: string) {
+  await requireSite(siteId);
+  await db.update(sites).set({ onboardingStep: "FIRST_CONTENT" }).where(eq(sites.id, siteId));
+  await enqueue("plan-keywords", { siteId });
+  redirect(`/sites/${siteId}/onboarding`);
+}
+
+export async function completeOnboarding(siteId: string) {
+  await requireSite(siteId);
+  await db.update(sites).set({ onboardingStep: "DONE" }).where(eq(sites.id, siteId));
+  redirect(`/sites/${siteId}`);
+}
+
+export async function planMore(siteId: string) {
+  await requireSite(siteId);
+  await enqueue("plan-keywords", { siteId });
+  revalidatePath(`/sites/${siteId}/content`);
+}
+
+export async function saveSettings(siteId: string, form: FormData) {
+  await requireSite(siteId);
+  const n = Math.min(60, Math.max(1, Number(form.get("articlesPerMonth") ?? 8) || 8));
+  await db
+    .update(sites)
+    .set({
+      articlesPerMonth: n,
+      toneOfVoice: String(form.get("toneOfVoice") ?? "").trim() || null,
+      language: String(form.get("language") ?? "en").trim() || "en",
+    })
+    .where(eq(sites.id, siteId));
+  revalidatePath(`/sites/${siteId}`, "layout");
+}
+
+// ---------- Articles ----------
+
+async function requireArticle(siteId: string, articleId: string) {
+  const { site } = await requireSite(siteId);
+  const article = await db.query.articles.findFirst({
+    where: and(eq(articles.id, articleId), eq(articles.siteId, siteId)),
+    with: { keyword: true },
+  });
+  if (!article) redirect(`/sites/${siteId}/content`);
+  return { site, article };
+}
+
+export async function saveArticle(siteId: string, articleId: string, _: FormState, form: FormData): Promise<FormState> {
+  const { site, article } = await requireArticle(siteId, articleId);
+  const title = String(form.get("title") ?? "").trim();
+  const slug = String(form.get("slug") ?? "").trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-|-$/g, "");
+  const metaTitle = String(form.get("metaTitle") ?? "").trim();
+  const metaDescription = String(form.get("metaDescription") ?? "").trim();
+  const contentMd = String(form.get("contentMd") ?? "");
+  if (!title) return { error: "Title is required." };
+  const { score, checks } = scoreArticle({
+    keyword: article.keyword?.phrase ?? null, title, metaTitle, metaDescription, slug, contentMd, siteDomain: site.domain,
+  });
+  await db
+    .update(articles)
+    .set({ title, slug, metaTitle, metaDescription, contentMd, seoScore: score, seoChecks: checks })
+    .where(eq(articles.id, articleId));
+  revalidatePath(`/sites/${siteId}/content/${articleId}`);
+  return { ok: "Saved" };
+}
+
+export async function approveArticle(siteId: string, articleId: string, form: FormData) {
+  const { article } = await requireArticle(siteId, articleId);
+  if (!article.contentMd) return;
+  const when = String(form.get("when") ?? "now");
+  const date = String(form.get("scheduledAt") ?? "");
+  if (when === "schedule" && date) {
+    await db.update(articles).set({ status: "SCHEDULED", scheduledAt: new Date(date) }).where(eq(articles.id, articleId));
+  } else {
+    await db.update(articles).set({ status: "PUBLISHING", scheduledAt: new Date() }).where(eq(articles.id, articleId));
+    await enqueue("publish-article", { articleId });
+  }
+  revalidatePath(`/sites/${siteId}`, "layout");
+}
+
+export async function unscheduleArticle(siteId: string, articleId: string) {
+  await requireArticle(siteId, articleId);
+  await db.update(articles).set({ status: "REVIEW", scheduledAt: null }).where(eq(articles.id, articleId));
+  revalidatePath(`/sites/${siteId}`, "layout");
+}
+
+export async function regenerateArticle(siteId: string, articleId: string) {
+  await requireArticle(siteId, articleId);
+  await db.update(articles).set({ status: "IDEA", error: null }).where(eq(articles.id, articleId));
+  await enqueue("write-article", { articleId });
+  revalidatePath(`/sites/${siteId}`, "layout");
+}
+
+export async function deleteArticle(siteId: string, articleId: string) {
+  const { article } = await requireArticle(siteId, articleId);
+  await db.delete(articles).where(eq(articles.id, articleId));
+  if (article.keywordId) await db.update(keywords).set({ status: "REJECTED" }).where(eq(keywords.id, article.keywordId));
+  redirect(`/sites/${siteId}/content`);
+}
+
+export async function writeFromKeyword(siteId: string, keywordId: string) {
+  await requireSite(siteId);
+  const k = await db.query.keywords.findFirst({ where: and(eq(keywords.id, keywordId), eq(keywords.siteId, siteId)) });
+  if (!k) return;
+  const [article] = await db
+    .insert(articles)
+    .values({ siteId, keywordId: k.id, title: k.phrase, status: "IDEA", plannedFor: new Date() })
+    .returning({ id: articles.id });
+  await db.update(keywords).set({ status: "PLANNED" }).where(eq(keywords.id, k.id));
+  await enqueue("write-article", { articleId: article.id });
+  revalidatePath(`/sites/${siteId}`, "layout");
+}
+
+export async function rejectKeyword(siteId: string, keywordId: string) {
+  await requireSite(siteId);
+  await db.update(keywords).set({ status: "REJECTED" }).where(and(eq(keywords.id, keywordId), eq(keywords.siteId, siteId)));
+  revalidatePath(`/sites/${siteId}/keywords`);
+}
+
+// ---------- Integrations ----------
+
+async function upsertIntegration(siteId: string, type: IntegrationType, secret: unknown, config: Record<string, string>) {
+  const enc = encryptJson(secret);
+  await db
+    .insert(integrations)
+    .values({ siteId, type, secret: enc, config })
+    .onConflictDoUpdate({ target: [integrations.siteId, integrations.type], set: { secret: enc, config } });
+}
+
+export async function connectWordPress(siteId: string, _: FormState, form: FormData): Promise<FormState> {
+  await requireSite(siteId);
+  const secret = {
+    siteUrl: String(form.get("siteUrl") ?? "").trim().replace(/\/$/, ""),
+    username: String(form.get("username") ?? "").trim(),
+    appPassword: String(form.get("appPassword") ?? "").trim(),
+  };
+  if (!/^https?:\/\//.test(secret.siteUrl) || !secret.username || !secret.appPassword) {
+    return { error: "Fill in the site URL (with https://), username and application password." };
+  }
+  try {
+    const name = await testWordPress(secret);
+    await upsertIntegration(siteId, "WORDPRESS", secret, { siteUrl: secret.siteUrl, user: name });
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Could not connect." };
+  }
+  revalidatePath(`/sites/${siteId}/integrations`);
+  return { ok: "WordPress connected" };
+}
+
+export async function connectShopify(siteId: string, _: FormState, form: FormData): Promise<FormState> {
+  await requireSite(siteId);
+  const secret = {
+    shopDomain: String(form.get("shopDomain") ?? "").trim().replace(/^https?:\/\//, "").replace(/\/$/, ""),
+    accessToken: String(form.get("accessToken") ?? "").trim(),
+  };
+  if (!/\.myshopify\.com$/.test(secret.shopDomain) || !secret.accessToken) {
+    return { error: "Use the store's .myshopify.com domain and an Admin API access token." };
+  }
+  try {
+    const blogs = await listBlogs(secret);
+    if (blogs.length === 0) return { error: "This store has no blog yet. Create one under Online Store → Blog posts." };
+    await upsertIntegration(siteId, "SHOPIFY", { ...secret, blogId: String(blogs[0].id) }, { shopDomain: secret.shopDomain, blog: blogs[0].title });
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Could not connect." };
+  }
+  revalidatePath(`/sites/${siteId}/integrations`);
+  return { ok: "Shopify connected" };
+}
+
+export async function disconnect(siteId: string, type: IntegrationType) {
+  await requireSite(siteId);
+  await db.delete(integrations).where(and(eq(integrations.siteId, siteId), eq(integrations.type, type)));
+  revalidatePath(`/sites/${siteId}/integrations`);
+}
+
+export async function syncGscNow(siteId: string) {
+  await requireSite(siteId);
+  await enqueue("sync-gsc", { siteId });
+  revalidatePath(`/sites/${siteId}`);
+}

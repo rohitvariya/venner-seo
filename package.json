@@ -1,0 +1,48 @@
+{
+  "name": "venner-seo",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "worker": "tsx --env-file=.env src/worker/index.ts",
+    "worker:dev": "tsx watch --env-file=.env src/worker/index.ts",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.11.0",
+    "bcryptjs": "^3.0.3",
+    "bullmq": "^6.7.8",
+    "cheerio": "^1.2.0",
+    "drizzle-orm": "^0.45.4",
+    "googleapis": "^190.0.0",
+    "ioredis": "^6.0.0",
+    "jose": "^6.2.18",
+    "marked": "^18.2.1",
+    "next": "15.5.29",
+    "pg": "^8.23.1",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^20",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "drizzle-kit": "^0.31.11",
+    "eslint": "^9",
+    "eslint-config-next": "15.5.29",
+    "tailwindcss": "^4",
+    "tsx": "^4.23.15",
+    "typescript": "^5"
+  }
+}
