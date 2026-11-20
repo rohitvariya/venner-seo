@@ -83,7 +83,13 @@ export async function addSite(_: FormState, form: FormData): Promise<FormState> 
     if (isUniqueViolation(e)) return { error: "This website is already in your workspace." };
     throw e;
   }
-  await enqueue("scan-site", { siteId });
+  try {
+    await enqueue("scan-site", { siteId });
+  } catch (e) {
+    console.error("Could not queue the site scan:", e);
+    await db.delete(sites).where(eq(sites.id, siteId));
+    return { error: "The background queue isn't reachable. Check REDIS_URL in .env (it should start with redis:// or rediss://) and that `npm run worker` is running." };
+  }
   redirect(`/sites/${siteId}/onboarding`);
 }
 

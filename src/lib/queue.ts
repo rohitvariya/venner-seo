@@ -16,9 +16,13 @@ export type JobData = { siteId?: string; articleId?: string };
 let connection: IORedis | null = null;
 export function redis() {
   if (!connection) {
-    connection = new IORedis(process.env.REDIS_URL ?? "redis://localhost:6379", {
-      maxRetriesPerRequest: null,
-    });
+    const url = process.env.REDIS_URL || "redis://localhost:6379";
+    if (!/^rediss?:\/\//.test(url)) {
+      throw new Error(
+        "REDIS_URL must start with redis:// or rediss:// (for Upstash, copy the rediss://default:…@….upstash.io:6379 URL, not the REST https:// URL)",
+      );
+    }
+    connection = new IORedis(url, { maxRetriesPerRequest: null });
   }
   return connection;
 }

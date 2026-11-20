@@ -47,6 +47,12 @@ export default async function OnboardingPage({ params }: { params: Promise<{ sit
               <li>• Looking for competitors near you</li>
             </ul>
             <p className="mt-6 text-xs text-slate-400">This usually takes under a minute.</p>
+            {Date.now() - site.updatedAt.getTime() > 3 * 60_000 && (
+              <form action={rescanSite.bind(null, siteId)} className="mt-4">
+                <p className="mb-2 text-sm text-amber-700">This is taking longer than expected. Make sure the worker (npm run worker) is running.</p>
+                <SubmitButton className="btn-secondary">Restart scan</SubmitButton>
+              </form>
+            )}
           </div>
         )}
 
