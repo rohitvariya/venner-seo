@@ -31,7 +31,8 @@ export function getQueue() {
 
 export async function enqueue(name: JobName, data: JobData) {
   await getQueue().add(name, data, {
-    attempts: 3,
+    // A failed site scan is shown to the user with a "Try again" button, so don't retry it silently.
+    attempts: name === "scan-site" ? 1 : 3,
     backoff: { type: "exponential", delay: 10_000 },
     removeOnComplete: 500,
     removeOnFail: 1000,

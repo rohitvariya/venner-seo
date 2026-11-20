@@ -1,12 +1,18 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import Link from "next/link";
 import { login, signup } from "@/app/actions";
 import { FormMessage, SubmitButton } from "./ui";
 
 export function AuthForm({ mode }: { mode: "login" | "signup" }) {
   const [state, action] = useActionState(mode === "login" ? login : signup, undefined);
+  // Controlled so values survive React's automatic form reset after a failed submit.
+  const [fields, setFields] = useState({ name: "", company: "", email: "" });
+  const bind = (k: keyof typeof fields) => ({
+    value: fields[k],
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => setFields((f) => ({ ...f, [k]: e.target.value })),
+  });
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
       <form action={action} className="card w-full max-w-sm space-y-4">
@@ -18,17 +24,17 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
           <>
             <div>
               <label className="label" htmlFor="name">Your name</label>
-              <input className="input" id="name" name="name" required />
+              <input className="input" id="name" name="name" required {...bind("name")} />
             </div>
             <div>
               <label className="label" htmlFor="company">Company or agency</label>
-              <input className="input" id="company" name="company" required />
+              <input className="input" id="company" name="company" required {...bind("company")} />
             </div>
           </>
         )}
         <div>
           <label className="label" htmlFor="email">Email</label>
-          <input className="input" id="email" name="email" type="email" required autoComplete="email" />
+          <input className="input" id="email" name="email" type="email" required autoComplete="email" {...bind("email")} />
         </div>
         <div>
           <label className="label" htmlFor="password">Password</label>
