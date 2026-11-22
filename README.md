@@ -13,6 +13,9 @@ AI SEO platform for local businesses and agencies. Add a website and it:
 8. **Grow / AI visibility:** finds the questions buyers ask AI assistants about the services, asks them in Claude (live web search) and optionally Perplexity and ChatGPT, and shows how often the business is mentioned or cited, which competitors AI recommends instead, and **quick wins** (questions where AI names competitors but not you) with one-click "Write an article for this". Re-checked weekly.
 9. **Articles to improve:** a 0–10 "how likely AI is to quote this" score for every article and for the website's existing blog posts (structured data, FAQ, sources, clear opening, freshness), with what to fix.
 
+10. **Posts:** writes 2 weeks of Google Business Profile updates and Facebook / Instagram / LinkedIn / X posts from published articles and services. Google posts publish automatically on schedule (with a Learn more / Call button); other channels are copy-and-post for now. Every newly published article gets a Google post drafted automatically.
+11. **Reviews:** syncs Google reviews every ~6 hours, drafts a reply for each in the brand's voice (apologetic and offline-oriented for 1–3 stars), and posts it in one click. Optional auto-reply for 4–5 star reviews.
+
 Nothing is published without approval. One login can manage many client websites (workspaces).
 
 ## Stack
@@ -73,6 +76,7 @@ Open http://localhost:3000/signup and create your account.
 - **WordPress:** in wp-admin go to Users → Profile → *Application Passwords*, create one, and paste it with the username and site URL on the Integrations page. Posts get a matching category (falling back to "Blog"), tags, a featured image, and Rank Math SEO title/description/focus keyword. Articles can be sent as drafts first.
 - **Shopify:** in Shopify admin go to Settings → Apps → *Develop apps*. Create an app with the `read_content` and `write_content` Admin API scopes, install it, and paste the Admin API access token plus the `.myshopify.com` domain.
 - **Custom-built site (Next.js, Laravel, anything):** on the Integrations page enter the article URL pattern (e.g. `https://example.com/blog/{slug}`) and, optionally, a webhook URL, then copy the Content API key and webhook secret (shown once). The site reads published articles from `GET /api/public/v1/articles` and `GET /api/public/v1/articles/{slug}` with `Authorization: Bearer vsk_…`. The webhook gets a signed `article.published` / `article.draft` POST (`X-Venner-Signature: t=…,v1=HMAC-SHA256("t.body")`); reply with `{"url": "…"}` to set the live URL. Ready-to-paste Next.js and Laravel code is on the Integrations page.
+- **Google Business Profile:** (1) in Google Cloud enable *My Business Account Management API*, *My Business Business Information API* and *Google My Business API*; (2) request API access for the project at https://developers.google.com/my-business/content/prereqs (Google approves within a few days; until then calls fail with a clear message); (3) add `${APP_URL}/api/integrations/gbp/callback` as an authorised redirect URI on the same OAuth client used for Search Console; (4) click *Connect with Google* on the Integrations page and sign in with the account that manages the listing.
 - **Search Console:** click *Connect with Google* and sign in with an account that has access to the site's property.
 
 ## Deploying
@@ -93,8 +97,7 @@ One article is one brief call plus one writing call, about 15–20k tokens in to
 
 ## Roadmap (not built yet)
 
-- Google Business Profile posts and review replies
-- Social posts (Instagram, Facebook, LinkedIn, X) and carousels
+- Automatic posting to Facebook / Instagram / LinkedIn (needs Meta and LinkedIn app review); carousels
 - AI hero images for articles
 - Webflow / Wix / Framer publishing (custom sites are supported via the Content API + webhook)
 - Stripe billing and plans, team invites, white-label for agencies

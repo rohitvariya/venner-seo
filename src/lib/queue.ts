@@ -12,9 +12,12 @@ export type JobName =
   | "find-questions"
   | "check-visibility"
   | "score-posts"
+  | "sync-reviews"
+  | "publish-post"
+  | "generate-posts"
   | "tick"; // periodic: publishes due scheduled articles, syncs GSC
 
-export type JobData = { siteId?: string; articleId?: string; draft?: boolean };
+export type JobData = { siteId?: string; articleId?: string; postId?: string; draft?: boolean };
 
 let connection: IORedis | null = null;
 export function redis() {

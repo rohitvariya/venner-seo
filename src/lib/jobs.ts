@@ -401,6 +401,8 @@ export async function syncGsc(siteId: string) {
 export async function tick() {
   const { queueWeeklyVisibility } = await import("./visibility/jobs");
   await queueWeeklyVisibility();
+  const { socialTick } = await import("./social/jobs");
+  await socialTick();
   const due = await db
     .update(articles)
     .set({ status: "PUBLISHING" })

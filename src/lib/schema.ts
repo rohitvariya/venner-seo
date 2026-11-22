@@ -17,7 +17,7 @@ export const keywordStatusEnum = pgEnum("keyword_status", ["SUGGESTED", "PLANNED
 export const articleStatusEnum = pgEnum("article_status", [
   "IDEA", "WRITING", "REVIEW", "APPROVED", "SCHEDULED", "PUBLISHING", "PUBLISHED", "FAILED",
 ]);
-export const integrationTypeEnum = pgEnum("integration_type", ["WORDPRESS", "SHOPIFY", "GSC", "CUSTOM"]);
+export const integrationTypeEnum = pgEnum("integration_type", ["WORDPRESS", "SHOPIFY", "GSC", "CUSTOM", "GBP"]);
 
 /** Everything content is built from. Auto-filled from the website scan, editable on the Business page. */
 export type Blueprint = {
@@ -95,6 +95,10 @@ export const sites = pgTable(
     blueprint: jsonb("blueprint").$type<Blueprint>().notNull().default(emptyBlueprint),
     aiStatus: jobStatusEnum("ai_status").notNull().default("IDLE"),
     aiCheckedAt: timestamp("ai_checked_at", { withTimezone: true }),
+    // Posting & review settings
+    googlePostsPerWeek: integer("google_posts_per_week").notNull().default(2),
+    socialChannels: jsonb("social_channels").$type<PostChannel[]>().notNull().default(["google", "facebook", "instagram", "linkedin"]),
+    autoReplyPositive: boolean("auto_reply_positive").notNull().default(false),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -284,6 +288,56 @@ export const postScores = pgTable(
   (t) => [uniqueIndex("post_scores_site_url").on(t.siteId, t.url)],
 );
 
+// ---- Google Business Profile + social posts, reviews ----
+
+export type PostChannel = "google" | "facebook" | "instagram" | "linkedin" | "x";
+export const postStatusEnum = pgEnum("post_status", ["DRAFT", "SCHEDULED", "PUBLISHING", "PUBLISHED", "FAILED"]);
+export type PostStatus = (typeof postStatusEnum.enumValues)[number];
+
+/** Short posts for Google Business Profile and social channels. Google posts publish automatically. */
+export const socialPosts = pgTable(
+  "social_posts",
+  {
+    id: id(),
+    siteId: text("site_id").notNull().references(() => sites.id, { onDelete: "cascade" }),
+    articleId: text("article_id").references(() => articles.id, { onDelete: "set null" }),
+    channel: text("channel").$type<PostChannel>().notNull(),
+    text: text("text").notNull(),
+    link: text("link"),
+    imageUrl: text("image_url"),
+    cta: text("cta"), // Google CTA: LEARN_MORE | CALL | BOOK | ORDER | SHOP | SIGN_UP
+    status: postStatusEnum("status").notNull().default("DRAFT"),
+    scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    externalId: text("external_id"),
+    externalUrl: text("external_url"),
+    error: text("error"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("social_posts_site_status").on(t.siteId, t.status)],
+);
+
+/** Google reviews synced from the Business Profile, with AI reply drafts. */
+export const reviews = pgTable(
+  "reviews",
+  {
+    id: id(),
+    siteId: text("site_id").notNull().references(() => sites.id, { onDelete: "cascade" }),
+    externalName: text("external_name").notNull(), // accounts/{a}/locations/{l}/reviews/{r}
+    reviewer: text("reviewer"),
+    rating: integer("rating").notNull(),
+    comment: text("comment"),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    replyText: text("reply_text"), // the live reply on Google
+    repliedAt: timestamp("replied_at", { withTimezone: true }),
+    draftReply: text("draft_reply"), // AI draft waiting for approval
+    error: text("error"),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("reviews_site_external").on(t.siteId, t.externalName)],
+);
+
 // ---- Relations (for db.query.* with `with`) ----
 
 export const usersRelations = relations(users, ({ many }) => ({ memberships: many(memberships) }));
@@ -325,6 +379,8 @@ export const articlesRelations = relations(articles, ({ one }) => ({
 export const integrationsRelations = relations(integrations, ({ one }) => ({ site: one(sites, { fields: [integrations.siteId], references: [sites.id] }) }));
 
 export type Site = typeof sites.$inferSelect;
+export type SocialPost = typeof socialPosts.$inferSelect;
+export type Review = typeof reviews.$inferSelect;
 export type Service = typeof services.$inferSelect;
 export type ServiceArea = typeof serviceAreas.$inferSelect;
 export type SitePage = typeof sitePages.$inferSelect;

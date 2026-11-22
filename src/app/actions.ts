@@ -498,3 +498,101 @@ export async function trackCompetitor(siteId: string, name: string, domain: stri
   if (!existing && name && domain) await db.insert(competitors).values({ siteId, name, domain });
   revalidatePath(`/sites/${siteId}`, "layout");
 }
+
+// ---------- Posts (Google Business Profile + social) & reviews ----------
+
+const { socialPosts, reviews } = schema;
+
+async function requirePost(siteId: string, postId: string) {
+  await requireSite(siteId);
+  const post = await db.query.socialPosts.findFirst({ where: and(eq(socialPosts.id, postId), eq(socialPosts.siteId, siteId)) });
+  if (!post) redirect(`/sites/${siteId}/posts`);
+  return post;
+}
+
+export async function generateSocialPosts(siteId: string) {
+  await requireSite(siteId);
+  await enqueue("generate-posts", { siteId });
+  revalidatePath(`/sites/${siteId}/posts`);
+}
+
+/** Saves edits; "schedule" approves the post (Google posts then publish automatically at that time). */
+export async function savePost(siteId: string, postId: string, form: FormData) {
+  const post = await requirePost(siteId, postId);
+  const text = String(form.get("text") ?? "").trim();
+  const when = String(form.get("scheduledAt") ?? "");
+  const intent = String(form.get("intent") ?? "save");
+  if (!text) return;
+  const scheduledAt = when ? new Date(when) : post.scheduledAt;
+  const status = intent === "schedule" ? "SCHEDULED" : intent === "unschedule" ? "DRAFT" : post.status;
+  await db.update(socialPosts).set({ text, scheduledAt, status, error: null }).where(eq(socialPosts.id, postId));
+  if (intent === "now" && post.channel === "google") {
+    await db.update(socialPosts).set({ status: "PUBLISHING" }).where(eq(socialPosts.id, postId));
+    await enqueue("publish-post", { postId });
+  }
+  revalidatePath(`/sites/${siteId}/posts`);
+}
+
+/** For channels without automatic posting: the user posted it themselves. */
+export async function markPosted(siteId: string, postId: string) {
+  await requirePost(siteId, postId);
+  await db.update(socialPosts).set({ status: "PUBLISHED", publishedAt: new Date(), error: null }).where(eq(socialPosts.id, postId));
+  revalidatePath(`/sites/${siteId}/posts`);
+}
+
+export async function deletePost(siteId: string, postId: string) {
+  await requirePost(siteId, postId);
+  await db.delete(socialPosts).where(eq(socialPosts.id, postId));
+  revalidatePath(`/sites/${siteId}/posts`);
+}
+
+export async function saveSocialSettings(siteId: string, form: FormData) {
+  await requireSite(siteId);
+  const channels = ["google", "facebook", "instagram", "linkedin", "x"].filter((c) => form.get(`ch_${c}`) === "on") as
+    ("google" | "facebook" | "instagram" | "linkedin" | "x")[];
+  await db
+    .update(sites)
+    .set({
+      socialChannels: channels.length ? channels : ["google"],
+      googlePostsPerWeek: Math.min(7, Math.max(0, Number(form.get("googlePostsPerWeek") ?? 2) || 0)),
+      autoReplyPositive: form.get("autoReplyPositive") === "on",
+    })
+    .where(eq(sites.id, siteId));
+  revalidatePath(`/sites/${siteId}`, "layout");
+}
+
+export async function syncReviewsNow(siteId: string) {
+  await requireSite(siteId);
+  await enqueue("sync-reviews", { siteId });
+  revalidatePath(`/sites/${siteId}/reviews`);
+}
+
+export async function sendReply(siteId: string, reviewId: string, _: FormState, form: FormData): Promise<FormState> {
+  await requireSite(siteId);
+  const r = await db.query.reviews.findFirst({ where: and(eq(reviews.id, reviewId), eq(reviews.siteId, siteId)) });
+  const reply = String(form.get("reply") ?? "").trim();
+  if (!r || !reply) return { error: "Write a reply first." };
+  try {
+    const { sendReviewReply } = await import("@/lib/social/jobs");
+    await sendReviewReply(reviewId, reply);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Could not post the reply." };
+  }
+  revalidatePath(`/sites/${siteId}/reviews`);
+  return { ok: "Reply posted on Google" };
+}
+
+/** Picks which Business Profile location belongs to this site (when several were found). */
+export async function chooseGbpLocation(siteId: string, form: FormData) {
+  await requireSite(siteId);
+  const row = await db.query.integrations.findFirst({ where: and(eq(integrations.siteId, siteId), eq(integrations.type, "GBP")) });
+  const choices = JSON.parse(row?.config?.choices ?? "[]") as { account: string; location: string; title: string; address: string }[];
+  const pick = choices[Number(form.get("index"))];
+  if (!row || !pick) return;
+  await db
+    .update(integrations)
+    .set({ config: { account: pick.account, location: pick.location, title: pick.title, address: pick.address } })
+    .where(eq(integrations.id, row.id));
+  await enqueue("sync-reviews", { siteId });
+  revalidatePath(`/sites/${siteId}/integrations`);
+}

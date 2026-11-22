@@ -2,6 +2,7 @@ import { Worker } from "bullmq";
 import { QUEUE_NAME, getQueue, redis, type JobData, type JobName } from "../lib/queue";
 import { planKeywords, publishArticleJob, scanSite, syncGsc, tick, writeArticleJob } from "../lib/jobs";
 import { checkVisibility, findQuestions, scorePosts } from "../lib/visibility/jobs";
+import { draftGooglePostForArticle, generatePosts, publishPost, syncReviews } from "../lib/social/jobs";
 
 // Background worker: run with `npm run worker` alongside the Next.js app.
 
@@ -17,7 +18,9 @@ const worker = new Worker<JobData, unknown, JobName>(
       case "write-article":
         return writeArticleJob(articleId!);
       case "publish-article":
-        return publishArticleJob(articleId!, { draft: job.data.draft });
+        await publishArticleJob(articleId!, { draft: job.data.draft });
+        if (!job.data.draft) await draftGooglePostForArticle(articleId!).catch((e) => console.error("Google post draft failed:", e));
+        return;
       case "sync-gsc":
         return syncGsc(siteId!);
       case "find-questions":
@@ -26,6 +29,12 @@ const worker = new Worker<JobData, unknown, JobName>(
         return checkVisibility(siteId!);
       case "score-posts":
         return scorePosts(siteId!);
+      case "sync-reviews":
+        return syncReviews(siteId!);
+      case "publish-post":
+        return publishPost(job.data.postId!);
+      case "generate-posts":
+        return generatePosts(siteId!);
       case "tick":
         return tick();
     }
