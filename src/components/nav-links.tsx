@@ -9,6 +9,7 @@ export function NavLinks({ siteId, toReview }: { siteId: string; toReview: numbe
   const items = [
     { href: base, label: "Overview" },
     { href: `${base}/content`, label: "Content", badge: toReview },
+    { href: `${base}/grow`, label: "Grow" },
     { href: `${base}/keywords`, label: "Keywords" },
     { href: `${base}/business`, label: "Business" },
     { href: `${base}/integrations`, label: "Integrations" },

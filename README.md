@@ -10,6 +10,9 @@ AI SEO platform for local businesses and agencies. Add a website and it:
 6. Lets you **edit, approve, schedule and publish** to **WordPress** or **Shopify**. Posts include an author byline and bio box, plus BlogPosting and FAQPage schema.
 7. **Tracks results** from **Google Search Console**: clicks, impressions, average position and top searches.
 
+8. **Grow / AI visibility:** finds the questions buyers ask AI assistants about the services, asks them in Claude (live web search) and optionally Perplexity and ChatGPT, and shows how often the business is mentioned or cited, which competitors AI recommends instead, and **quick wins** (questions where AI names competitors but not you) with one-click "Write an article for this". Re-checked weekly.
+9. **Articles to improve:** a 0–10 "how likely AI is to quote this" score for every article and for the website's existing blog posts (structured data, FAQ, sources, clear opening, freshness), with what to fix.
+
 Nothing is published without approval. One login can manage many client websites (workspaces).
 
 ## Stack
@@ -61,6 +64,7 @@ Open http://localhost:3000/signup and create your account.
 | `ANTHROPIC_API_KEY` | yes | From console.anthropic.com |
 | `ANTHROPIC_MODEL` | no | Default `claude-sonnet-5-5` |
 | `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD` | recommended | Without them keywords have no volume and competitors aren't auto-found |
+| `PERPLEXITY_API_KEY` / `OPENAI_API_KEY` | optional | Adds Perplexity and ChatGPT to the AI visibility checks (Claude is always checked) |
 | `UNSPLASH_ACCESS_KEY` | optional | Free key from unsplash.com/developers. Auto-picks a featured image per article (photographer credited in the caption) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | for GSC | Google Cloud → APIs & Services → enable *Google Search Console API* → OAuth client (Web). Redirect URI: `${APP_URL}/api/integrations/gsc/callback` |
 
@@ -91,7 +95,6 @@ One article is one brief call plus one writing call, about 15–20k tokens in to
 
 - Google Business Profile posts and review replies
 - Social posts (Instagram, Facebook, LinkedIn, X) and carousels
-- AI visibility tracking (brand mentions in ChatGPT, Gemini, Perplexity)
 - AI hero images for articles
 - Webflow / Wix / Framer publishing (custom sites are supported via the Content API + webhook)
 - Stripe billing and plans, team invites, white-label for agencies

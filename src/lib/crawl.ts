@@ -27,7 +27,7 @@ export function normalizeDomain(input: string): string {
   return d.replace(/^www\./, "");
 }
 
-async function fetchText(url: string, timeoutMs = 20_000): Promise<string | null> {
+export async function fetchText(url: string, timeoutMs = 20_000): Promise<string | null> {
   try {
     const res = await fetch(url, {
       headers: {
@@ -137,4 +137,30 @@ export async function crawlSite(domain: string, maxPages = 25): Promise<CrawledP
     if (p.text.length > 200) pages.push(p);
   }
   return pages;
+}
+
+/**
+ * Finds the site's blog post URLs: WordPress-style post sitemaps first, then any sitemap URL
+ * that looks like an article (/blog/, /news/, /insights/, dated paths).
+ */
+export async function listPostUrls(domain: string, limit = 30): Promise<string[]> {
+  const host = normalizeDomain(domain);
+  const base = `https://${host}`;
+  const index = await fetchText(`${base}/sitemap_index.xml`) ?? await fetchText(`${base}/sitemap.xml`);
+  const posts: string[] = [];
+  if (index) {
+    const $ = cheerio.load(index, { xmlMode: true });
+    const locs = $("loc").map((_, el) => $(el).text().trim()).get();
+    const postMaps = locs.filter((l) => l.endsWith(".xml") && /post-sitemap|blog|article|news/i.test(l));
+    for (const sm of postMaps.slice(0, 3)) {
+      const xml = await fetchText(sm);
+      if (!xml) continue;
+      const $$ = cheerio.load(xml, { xmlMode: true });
+      posts.push(...$$("url > loc").map((_, el) => $$(el).text().trim()).get());
+    }
+    if (posts.length === 0) {
+      posts.push(...(await sitemapUrls(base, host)).filter((u) => /\/(blog|news|insights|articles?|resources)\/.+|\/\d{4}\/\d{2}\//i.test(u)));
+    }
+  }
+  return [...new Set(posts)].filter((u) => !/\/(category|tag|author|page)\//.test(u)).slice(0, limit);
 }

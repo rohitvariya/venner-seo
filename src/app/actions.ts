@@ -428,3 +428,64 @@ export async function saveCustomSite(siteId: string, _: CustomState, form: FormD
   revalidatePath(`/sites/${siteId}/integrations`);
   return { ok: apiKey ? "Connected. Copy the keys below now: they won't be shown again." : "Saved", apiKey, webhookSecret };
 }
+
+// ---------- Grow: AI visibility ----------
+
+export async function findAiQuestions(siteId: string) {
+  await requireSite(siteId);
+  await db.update(sites).set({ aiStatus: "QUEUED" }).where(eq(sites.id, siteId));
+  await enqueue("find-questions", { siteId });
+  revalidatePath(`/sites/${siteId}/grow`);
+}
+
+export async function runAiCheck(siteId: string) {
+  await requireSite(siteId);
+  await db.update(sites).set({ aiStatus: "QUEUED" }).where(eq(sites.id, siteId));
+  await enqueue("check-visibility", { siteId });
+  revalidatePath(`/sites/${siteId}/grow`);
+}
+
+export async function addAiQuestion(siteId: string, form: FormData) {
+  await requireSite(siteId);
+  const question = String(form.get("question") ?? "").trim();
+  if (question.length > 8) {
+    await db.insert(schema.aiQuestions).values({ siteId, question, topic: "Added by you" }).onConflictDoNothing();
+  }
+  revalidatePath(`/sites/${siteId}/grow`);
+}
+
+export async function hideAiQuestion(siteId: string, questionId: string) {
+  await requireSite(siteId);
+  await db
+    .update(schema.aiQuestions)
+    .set({ hidden: true })
+    .where(and(eq(schema.aiQuestions.id, questionId), eq(schema.aiQuestions.siteId, siteId)));
+  revalidatePath(`/sites/${siteId}/grow`);
+}
+
+/** Quick win: plan and write an article that answers a question AI currently answers without you. */
+export async function writeForQuestion(siteId: string, questionId: string) {
+  await requireSite(siteId);
+  const q = await db.query.aiQuestions.findFirst({
+    where: and(eq(schema.aiQuestions.id, questionId), eq(schema.aiQuestions.siteId, siteId)),
+  });
+  if (!q) return;
+  const phrase = q.question.toLowerCase().replace(/[?!.]+$/, "").trim();
+  const [kw] = await db
+    .insert(keywords)
+    .values({ siteId, phrase, intent: "commercial", cluster: q.topic, status: "PLANNED" })
+    .onConflictDoUpdate({ target: [keywords.siteId, keywords.phrase], set: { status: "PLANNED" } })
+    .returning({ id: keywords.id });
+  const [article] = await db
+    .insert(articles)
+    .values({ siteId, keywordId: kw.id, title: q.question, status: "IDEA", plannedFor: new Date() })
+    .returning({ id: articles.id });
+  await enqueue("write-article", { articleId: article.id });
+  redirect(`/sites/${siteId}/content/${article.id}`);
+}
+
+export async function scoreSitePosts(siteId: string) {
+  await requireSite(siteId);
+  await enqueue("score-posts", { siteId });
+  revalidatePath(`/sites/${siteId}/grow`);
+}

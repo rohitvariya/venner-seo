@@ -93,6 +93,8 @@ export const sites = pgTable(
     scanError: text("scan_error"),
     articlesPerMonth: integer("articles_per_month").notNull().default(8),
     blueprint: jsonb("blueprint").$type<Blueprint>().notNull().default(emptyBlueprint),
+    aiStatus: jobStatusEnum("ai_status").notNull().default("IDLE"),
+    aiCheckedAt: timestamp("ai_checked_at", { withTimezone: true }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -228,6 +230,60 @@ export const gscQueryMetrics = pgTable(
   (t) => [index("gsc_query_site_period").on(t.siteId, t.periodEnd)],
 );
 
+// ---- AI visibility ----
+
+export type AiEngine = "claude" | "perplexity" | "openai";
+
+/** Questions buyers ask AI assistants about the site's services; checked regularly in each engine. */
+export const aiQuestions = pgTable(
+  "ai_questions",
+  {
+    id: id(),
+    siteId: text("site_id").notNull().references(() => sites.id, { onDelete: "cascade" }),
+    question: text("question").notNull(),
+    topic: text("topic"),
+    hidden: boolean("hidden").notNull().default(false),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("ai_questions_site_question").on(t.siteId, t.question)],
+);
+
+/** One engine's answer to one question at one point in time. */
+export const aiChecks = pgTable(
+  "ai_checks",
+  {
+    id: id(),
+    siteId: text("site_id").notNull().references(() => sites.id, { onDelete: "cascade" }),
+    questionId: text("question_id").notNull().references(() => aiQuestions.id, { onDelete: "cascade" }),
+    engine: text("engine").$type<AiEngine>().notNull(),
+    mentioned: boolean("mentioned").notNull(), // business name or domain appears in the answer
+    cited: boolean("cited").notNull(), // the site's domain is among the cited sources
+    competitorsMentioned: jsonb("competitors_mentioned").$type<string[]>().notNull().default([]),
+    citations: jsonb("citations").$type<string[]>().notNull().default([]),
+    answerExcerpt: text("answer_excerpt"),
+    error: text("error"),
+    checkedAt: timestamp("checked_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("ai_checks_site_checked").on(t.siteId, t.checkedAt), index("ai_checks_question").on(t.questionId, t.engine)],
+);
+
+export type QuoteCheck = { id: string; label: string; passed: boolean; tip: string };
+
+/** "How likely is AI to quote this?" scores for the site's own existing blog posts (fetched from the site). */
+export const postScores = pgTable(
+  "post_scores",
+  {
+    id: id(),
+    siteId: text("site_id").notNull().references(() => sites.id, { onDelete: "cascade" }),
+    url: text("url").notNull(),
+    title: text("title"),
+    score: integer("score").notNull(),
+    checks: jsonb("checks").$type<QuoteCheck[]>().notNull(),
+    checkedAt: timestamp("checked_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("post_scores_site_url").on(t.siteId, t.url)],
+);
+
 // ---- Relations (for db.query.* with `with`) ----
 
 export const usersRelations = relations(users, ({ many }) => ({ memberships: many(memberships) }));
@@ -245,6 +301,14 @@ export const sitesRelations = relations(sites, ({ one, many }) => ({
   keywords: many(keywords),
   articles: many(articles),
   integrations: many(integrations),
+  aiQuestions: many(aiQuestions),
+}));
+export const aiQuestionsRelations = relations(aiQuestions, ({ one, many }) => ({
+  site: one(sites, { fields: [aiQuestions.siteId], references: [sites.id] }),
+  checks: many(aiChecks),
+}));
+export const aiChecksRelations = relations(aiChecks, ({ one }) => ({
+  question: one(aiQuestions, { fields: [aiChecks.questionId], references: [aiQuestions.id] }),
 }));
 export const sitePagesRelations = relations(sitePages, ({ one }) => ({ site: one(sites, { fields: [sitePages.siteId], references: [sites.id] }) }));
 export const servicesRelations = relations(services, ({ one }) => ({ site: one(sites, { fields: [services.siteId], references: [sites.id] }) }));

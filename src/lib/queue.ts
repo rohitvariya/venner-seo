@@ -9,6 +9,9 @@ export type JobName =
   | "write-article"
   | "publish-article"
   | "sync-gsc"
+  | "find-questions"
+  | "check-visibility"
+  | "score-posts"
   | "tick"; // periodic: publishes due scheduled articles, syncs GSC
 
 export type JobData = { siteId?: string; articleId?: string; draft?: boolean };

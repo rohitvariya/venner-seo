@@ -399,6 +399,8 @@ export async function syncGsc(siteId: string) {
 
 /** Runs every few minutes: publishes due scheduled articles and refreshes GSC about once a day. */
 export async function tick() {
+  const { queueWeeklyVisibility } = await import("./visibility/jobs");
+  await queueWeeklyVisibility();
   const due = await db
     .update(articles)
     .set({ status: "PUBLISHING" })

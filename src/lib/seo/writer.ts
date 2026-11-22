@@ -118,7 +118,10 @@ export async function writeArticle(context: string, keyword: string, brief: Brie
       "5. Include every internal link from the brief exactly once, with its anchor text, where it fits naturally.\n" +
       "6. '## Frequently asked questions' with each FAQ as ### question + answer.\n" +
       "7. '## Key takeaways' bullet list.\n" +
-      "8. Close with a short paragraph containing the call to action.",
+      "8. Close with a short paragraph containing the call to action.\n" +
+      "9. Where the article relies on a standard, regulation, platform or widely known guideline, link 1-3 " +
+      "authoritative outside sources (official documentation, standards bodies, government sites). Use only stable, " +
+      "well-known URLs you are certain exist (a site's homepage or main docs page), never guessed deep links.",
     maxTokens: 16000,
   });
 }
