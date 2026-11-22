@@ -238,6 +238,9 @@ export async function approveArticle(siteId: string, articleId: string, form: Fo
   const date = String(form.get("scheduledAt") ?? "");
   if (when === "schedule" && date) {
     await db.update(articles).set({ status: "SCHEDULED", scheduledAt: new Date(date) }).where(eq(articles.id, articleId));
+  } else if (when === "draft") {
+    await db.update(articles).set({ status: "PUBLISHING" }).where(eq(articles.id, articleId));
+    await enqueue("publish-article", { articleId, draft: true });
   } else {
     await db.update(articles).set({ status: "PUBLISHING", scheduledAt: new Date() }).where(eq(articles.id, articleId));
     await enqueue("publish-article", { articleId });

@@ -39,7 +39,9 @@ export default async function ArticlePage({ params }: { params: Promise<{ siteId
             {article.keyword && <span className="text-sm text-slate-500">Keyword: {article.keyword.phrase}</span>}
           </div>
           {article.publishedUrl && (
-            <a href={article.publishedUrl} target="_blank" rel="noreferrer" className="mt-1 block text-sm text-brand-500">View live post ↗</a>
+            <a href={article.publishedUrl} target="_blank" rel="noreferrer" className="mt-1 block text-sm text-brand-500">
+              {article.status === "PUBLISHED" ? "View live post ↗" : "View draft on your site ↗"}
+            </a>
           )}
           {article.error && <p className="mt-2 text-sm text-red-600">{article.error}</p>}
         </div>
@@ -77,7 +79,8 @@ export default async function ArticlePage({ params }: { params: Promise<{ siteId
                 </>
               ) : (
                 <form action={approveArticle.bind(null, siteId, articleId)} className="space-y-3">
-                  <label className="flex items-center gap-2 text-sm"><input type="radio" name="when" value="now" defaultChecked /> Publish now</label>
+                  <label className="flex items-center gap-2 text-sm"><input type="radio" name="when" value="draft" defaultChecked={article.status !== "APPROVED"} /> Send as draft (not live)</label>
+                  <label className="flex items-center gap-2 text-sm"><input type="radio" name="when" value="now" defaultChecked={article.status === "APPROVED"} /> Publish now</label>
                   <label className="flex items-center gap-2 text-sm"><input type="radio" name="when" value="schedule" /> Schedule</label>
                   <input type="datetime-local" name="scheduledAt" className="input" />
                   <SubmitButton className="btn-primary w-full" pending="Queuing…">

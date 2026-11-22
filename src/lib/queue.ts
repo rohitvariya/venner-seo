@@ -11,7 +11,7 @@ export type JobName =
   | "sync-gsc"
   | "tick"; // periodic: publishes due scheduled articles, syncs GSC
 
-export type JobData = { siteId?: string; articleId?: string };
+export type JobData = { siteId?: string; articleId?: string; draft?: boolean };
 
 let connection: IORedis | null = null;
 export function redis() {

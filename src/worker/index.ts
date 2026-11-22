@@ -16,7 +16,7 @@ const worker = new Worker<JobData, unknown, JobName>(
       case "write-article":
         return writeArticleJob(articleId!);
       case "publish-article":
-        return publishArticleJob(articleId!);
+        return publishArticleJob(articleId!, { draft: job.data.draft });
       case "sync-gsc":
         return syncGsc(siteId!);
       case "tick":

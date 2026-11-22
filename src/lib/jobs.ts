@@ -210,7 +210,9 @@ export async function writeArticleJob(articleId: string) {
   }
 }
 
-export async function publishArticleJob(articleId: string) {
+/** Publishes (or, with draft: true, sends as an unpublished draft) to WordPress/Shopify. */
+export async function publishArticleJob(articleId: string, opts: { draft?: boolean } = {}) {
+  const draft = !!opts.draft;
   const article = await db.query.articles.findFirst({ where: eq(articles.id, articleId), with: { site: true } });
   if (!article) return;
   const integration = await db.query.integrations.findFirst({
@@ -241,7 +243,7 @@ export async function publishArticleJob(articleId: string) {
             slug: article.slug,
             html,
             excerpt: article.metaDescription,
-            status: "publish",
+            status: draft ? "draft" : "publish",
             externalId: article.externalId,
           })
         : await publishToShopify(decryptJson<ShopifySecret>(integration.secret), {
@@ -250,12 +252,16 @@ export async function publishArticleJob(articleId: string) {
             html,
             excerpt: article.metaDescription,
             author: article.site.blueprint.author?.name || article.site.businessName || article.site.domain,
-            published: true,
+            published: !draft,
             externalId: article.externalId,
           });
     await db
       .update(articles)
-      .set({ status: "PUBLISHED", publishedAt: article.publishedAt ?? new Date(), publishedUrl: result.url, externalId: result.externalId })
+      .set(
+        draft
+          ? { status: "APPROVED", publishedUrl: result.url, externalId: result.externalId }
+          : { status: "PUBLISHED", publishedAt: article.publishedAt ?? new Date(), publishedUrl: result.url, externalId: result.externalId },
+      )
       .where(eq(articles.id, articleId));
   } catch (err) {
     await db.update(articles).set({ status: "FAILED", error: errMsg(err) }).where(eq(articles.id, articleId));
