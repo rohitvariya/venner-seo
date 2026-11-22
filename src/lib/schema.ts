@@ -17,7 +17,7 @@ export const keywordStatusEnum = pgEnum("keyword_status", ["SUGGESTED", "PLANNED
 export const articleStatusEnum = pgEnum("article_status", [
   "IDEA", "WRITING", "REVIEW", "APPROVED", "SCHEDULED", "PUBLISHING", "PUBLISHED", "FAILED",
 ]);
-export const integrationTypeEnum = pgEnum("integration_type", ["WORDPRESS", "SHOPIFY", "GSC"]);
+export const integrationTypeEnum = pgEnum("integration_type", ["WORDPRESS", "SHOPIFY", "GSC", "CUSTOM"]);
 
 /** Everything content is built from. Auto-filled from the website scan, editable on the Business page. */
 export type Blueprint = {

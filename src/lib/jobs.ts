@@ -13,6 +13,7 @@ import { publishToShopify, type ShopifySecret } from "./publish/shopify";
 import { fetchDaily, fetchTopQueries, type GscSecret } from "./gsc";
 import { enqueue } from "./queue";
 import { findStockPhoto } from "./images";
+import { articleUrl, publicArticle, sendWebhook, type CustomConfig, type CustomSecret } from "./publish/custom";
 import type { Brief } from "./seo/writer";
 
 const { sites, sitePages, services, serviceAreas, competitors, keywords, articles, integrations, gscDailyMetrics, gscQueryMetrics } = schema;
@@ -161,6 +162,20 @@ function titleCase(s: string) {
   return s.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/** Makes the slug unique within the site (custom sites and the Content API look articles up by slug). */
+async function uniqueSlug(siteId: string, articleId: string, raw: string) {
+  const base = raw.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || "article";
+  for (let n = 1; n < 50; n++) {
+    const candidate = n === 1 ? base : `${base}-${n}`;
+    const clash = await db.query.articles.findFirst({
+      where: and(eq(articles.siteId, siteId), eq(articles.slug, candidate), ne(articles.id, articleId)),
+      columns: { id: true },
+    });
+    if (!clash) return candidate;
+  }
+  return `${base}-${Date.now().toString(36)}`;
+}
+
 export async function writeArticleJob(articleId: string) {
   await db.update(articles).set({ status: "WRITING", error: null }).where(eq(articles.id, articleId));
   const article = await db.query.articles.findFirst({ where: eq(articles.id, articleId), with: { keyword: true } });
@@ -173,6 +188,7 @@ export async function writeArticleJob(articleId: string) {
       columns: { title: true },
     });
     const brief = await createBrief(context, keyword, others.map((o) => o.title));
+    brief.slug = await uniqueSlug(site.id, article.id, brief.slug);
     const contentMd = await writeArticle(context, keyword, brief, site.language);
     let factIssues: Awaited<ReturnType<typeof factCheck>> = [];
     try {
@@ -217,13 +233,15 @@ export async function publishArticleJob(articleId: string, opts: { draft?: boole
   const draft = !!opts.draft;
   const article = await db.query.articles.findFirst({ where: eq(articles.id, articleId), with: { site: true } });
   if (!article) return;
-  const integration = await db.query.integrations.findFirst({
-    where: and(eq(integrations.siteId, article.siteId), inArray(integrations.type, ["WORDPRESS", "SHOPIFY"])),
+  // One publishing target per site; WordPress/Shopify take priority over a custom site.
+  const all = await db.query.integrations.findMany({
+    where: and(eq(integrations.siteId, article.siteId), inArray(integrations.type, ["WORDPRESS", "SHOPIFY", "CUSTOM"])),
   });
+  const integration = ["WORDPRESS", "SHOPIFY", "CUSTOM"].map((t) => all.find((i) => i.type === t)).find(Boolean);
   if (!article.contentMd || !integration) {
     await db
       .update(articles)
-      .set({ status: "FAILED", error: !integration ? "Connect WordPress or Shopify first." : "Article has no content yet." })
+      .set({ status: "FAILED", error: !integration ? "Connect WordPress, Shopify or your custom site first." : "Article has no content yet." })
       .where(eq(articles.id, articleId));
     return;
   }
@@ -246,6 +264,11 @@ export async function publishArticleJob(articleId: string, opts: { draft?: boole
       } catch (err) {
         console.error("Stock photo lookup failed:", err);
       }
+    }
+
+    if (integration.type === "CUSTOM") {
+      await publishToCustomSite(articleId, integration.config as CustomConfig, integration.secret, keyword, draft);
+      return;
     }
 
     const html = articleHtml(article.contentMd, article.faq, {
@@ -307,6 +330,38 @@ export async function publishArticleJob(articleId: string, opts: { draft?: boole
     await db.update(articles).set({ status: "FAILED", error: errMsg(err) }).where(eq(articles.id, articleId));
     throw err;
   }
+}
+
+/**
+ * Custom sites read published articles from the Content API, so "publishing" marks the article live
+ * here, then notifies the site's webhook (if set). The live URL comes from the webhook's reply or the
+ * site's URL pattern.
+ */
+async function publishToCustomSite(articleId: string, config: CustomConfig, secretBlob: string, keyword: string | null, draft: boolean) {
+  const current = await db.query.articles.findFirst({ where: eq(articles.id, articleId), with: { site: true } });
+  if (!current) return;
+  // Build the final state first, notify the webhook, then save status + URL together so the UI
+  // never sees "Published" without its live URL.
+  const next = {
+    ...current,
+    status: draft ? ("APPROVED" as const) : ("PUBLISHED" as const),
+    publishedAt: draft ? current.publishedAt : (current.publishedAt ?? new Date()),
+  };
+  let url = config.urlPattern ? articleUrl(config.urlPattern, current.slug) : null;
+  const notes: string[] = [];
+  if (config.webhookUrl) {
+    try {
+      const { webhookSecret } = decryptJson<CustomSecret>(secretBlob);
+      const reply = await sendWebhook(config.webhookUrl, webhookSecret, draft ? "article.draft" : "article.published", publicArticle(next, current.site, { url, keyword }));
+      if (reply.url) url = reply.url;
+    } catch (err) {
+      notes.push(`Webhook failed: ${errMsg(err)}. The article is still available from the Content API.`);
+    }
+  }
+  await db
+    .update(articles)
+    .set({ status: next.status, publishedAt: next.publishedAt, publishedUrl: url, error: notes.length ? `Note: ${notes.join(" ")}` : null })
+    .where(eq(articles.id, articleId));
 }
 
 export async function syncGsc(siteId: string) {

@@ -68,6 +68,7 @@ Open http://localhost:3000/signup and create your account.
 
 - **WordPress:** in wp-admin go to Users → Profile → *Application Passwords*, create one, and paste it with the username and site URL on the Integrations page. Posts get a matching category (falling back to "Blog"), tags, a featured image, and Rank Math SEO title/description/focus keyword. Articles can be sent as drafts first.
 - **Shopify:** in Shopify admin go to Settings → Apps → *Develop apps*. Create an app with the `read_content` and `write_content` Admin API scopes, install it, and paste the Admin API access token plus the `.myshopify.com` domain.
+- **Custom-built site (Next.js, Laravel, anything):** on the Integrations page enter the article URL pattern (e.g. `https://example.com/blog/{slug}`) and, optionally, a webhook URL, then copy the Content API key and webhook secret (shown once). The site reads published articles from `GET /api/public/v1/articles` and `GET /api/public/v1/articles/{slug}` with `Authorization: Bearer vsk_…`. The webhook gets a signed `article.published` / `article.draft` POST (`X-Venner-Signature: t=…,v1=HMAC-SHA256("t.body")`); reply with `{"url": "…"}` to set the live URL. Ready-to-paste Next.js and Laravel code is on the Integrations page.
 - **Search Console:** click *Connect with Google* and sign in with an account that has access to the site's property.
 
 ## Deploying
@@ -92,5 +93,5 @@ One article is one brief call plus one writing call, about 15–20k tokens in to
 - Social posts (Instagram, Facebook, LinkedIn, X) and carousels
 - AI visibility tracking (brand mentions in ChatGPT, Gemini, Perplexity)
 - AI hero images for articles
-- Webflow / Wix / Framer publishing
+- Webflow / Wix / Framer publishing (custom sites are supported via the Content API + webhook)
 - Stripe billing and plans, team invites, white-label for agencies

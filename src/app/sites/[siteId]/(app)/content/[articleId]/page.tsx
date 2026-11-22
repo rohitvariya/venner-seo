@@ -20,7 +20,7 @@ export default async function ArticlePage({ params }: { params: Promise<{ siteId
   });
   if (!article) notFound();
   const publisher = await db.query.integrations.findFirst({
-    where: and(eq(schema.integrations.siteId, siteId), inArray(schema.integrations.type, ["WORDPRESS", "SHOPIFY"])),
+    where: and(eq(schema.integrations.siteId, siteId), inArray(schema.integrations.type, ["WORDPRESS", "SHOPIFY", "CUSTOM"])),
   });
   const busy = ["IDEA", "WRITING", "PUBLISHING"].includes(article.status);
   const checks: SeoCheck[] = article.seoChecks ?? [];
@@ -67,7 +67,7 @@ export default async function ArticlePage({ params }: { params: Promise<{ siteId
               <h2 className="font-semibold">Approve & publish</h2>
               {!publisher && (
                 <p className="text-sm text-amber-700">
-                  Connect <Link className="underline" href={`/sites/${siteId}/integrations`}>WordPress or Shopify</Link> to publish.
+                  Connect <Link className="underline" href={`/sites/${siteId}/integrations`}>WordPress, Shopify or your custom site</Link> to publish.
                 </p>
               )}
               {article.status === "SCHEDULED" ? (
@@ -79,8 +79,13 @@ export default async function ArticlePage({ params }: { params: Promise<{ siteId
                 </>
               ) : (
                 <form action={approveArticle.bind(null, siteId, articleId)} className="space-y-3">
-                  <label className="flex items-center gap-2 text-sm"><input type="radio" name="when" value="draft" defaultChecked={article.status !== "APPROVED"} /> Send as draft (not live)</label>
-                  <label className="flex items-center gap-2 text-sm"><input type="radio" name="when" value="now" defaultChecked={article.status === "APPROVED"} /> Publish now</label>
+                  {article.status !== "PUBLISHED" && (
+                    <label className="flex items-center gap-2 text-sm"><input type="radio" name="when" value="draft" defaultChecked={article.status !== "APPROVED"} /> Send as draft (not live)</label>
+                  )}
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="radio" name="when" value="now" defaultChecked={article.status === "APPROVED" || article.status === "PUBLISHED"} />
+                    {article.status === "PUBLISHED" ? "Update the live post now" : "Publish now"}
+                  </label>
                   <label className="flex items-center gap-2 text-sm"><input type="radio" name="when" value="schedule" /> Schedule</label>
                   <input type="datetime-local" name="scheduledAt" className="input" />
                   <SubmitButton className="btn-primary w-full" pending="Queuing…">

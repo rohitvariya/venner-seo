@@ -2,7 +2,8 @@ import { requireSite } from "@/lib/auth";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { disconnect, syncGscNow } from "@/app/actions";
-import { ShopifyForm, WordPressForm } from "@/components/integration-forms";
+import { CustomSiteForm, ShopifyForm, WordPressForm } from "@/components/integration-forms";
+import { CustomSiteDocs } from "@/components/custom-site-docs";
 import { SubmitButton } from "@/components/ui";
 
 export default async function IntegrationsPage({ params, searchParams }: {
@@ -17,6 +18,8 @@ export default async function IntegrationsPage({ params, searchParams }: {
   const wp = get("WORDPRESS");
   const shop = get("SHOPIFY");
   const gsc = get("GSC");
+  const custom = get("CUSTOM");
+  const apiBase = `${(process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "")}/api/public/v1`;
   const cfg = (i: typeof wp) => i?.config ?? {};
   const gscReady = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 
@@ -83,6 +86,25 @@ export default async function IntegrationsPage({ params, searchParams }: {
         ) : (
           <ShopifyForm siteId={siteId} />
         )}
+      </section>
+      <section className="card space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="font-semibold">Custom-built site (Next.js, Laravel, any framework)</h2>
+            <p className="text-sm text-slate-500">
+              The site reads published articles from our Content API with a key, and can get a signed webhook the moment one is published.
+            </p>
+          </div>
+          {custom && <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">Connected</span>}
+        </div>
+        {(wp || shop) && (
+          <p className="text-xs text-amber-700">WordPress/Shopify is also connected, so articles are published there. Disconnect it to publish to the custom site.</p>
+        )}
+        {custom && <p className="text-sm text-slate-600">API key in use: <code className="rounded bg-slate-100 px-1">{cfg(custom).apiKeyPrefix}…</code></p>}
+        <CustomSiteForm siteId={siteId} connected={!!custom}
+          defaults={{ urlPattern: cfg(custom).urlPattern ?? `https://${site.domain}/blog/{slug}`, webhookUrl: cfg(custom).webhookUrl ?? "" }} />
+        {custom && <form action={disconnect.bind(null, siteId, "CUSTOM")}><button className="btn-danger">Disconnect</button></form>}
+        <CustomSiteDocs apiBase={apiBase} />
       </section>
     </div>
   );

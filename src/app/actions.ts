@@ -387,3 +387,44 @@ export async function saveBlueprint(siteId: string, _: FormState, form: FormData
   revalidatePath(`/sites/${siteId}`, "layout");
   return { ok: "Saved" };
 }
+
+// ---------- Custom site (Content API + webhook) ----------
+
+export type CustomState = { error?: string; ok?: string; apiKey?: string; webhookSecret?: string } | undefined;
+
+/**
+ * Creates or updates the custom-site connection. A new API key (and webhook secret) is generated on
+ * first connect or when "regenerate" is ticked; they're returned once and only their hash is stored.
+ */
+export async function saveCustomSite(siteId: string, _: CustomState, form: FormData): Promise<CustomState> {
+  const { site } = await requireSite(siteId);
+  const urlPattern = String(form.get("urlPattern") ?? "").trim();
+  const webhookUrl = String(form.get("webhookUrl") ?? "").trim();
+  const regenerate = form.get("regenerate") === "on";
+  if (!/^https?:\/\/\S+\{slug\}/.test(urlPattern)) {
+    return { error: "Article URL pattern must start with https:// and contain {slug}, e.g. https://example.com/blog/{slug}" };
+  }
+  if (webhookUrl && !/^https?:\/\/\S+$/.test(webhookUrl)) return { error: "Webhook URL must start with https://" };
+
+  const { newApiKey, newWebhookSecret, sha256 } = await import("@/lib/publish/custom");
+  const existing = await db.query.integrations.findFirst({
+    where: and(eq(integrations.siteId, site.id), eq(integrations.type, "CUSTOM")),
+  });
+  let apiKey: string | undefined;
+  let webhookSecret: string | undefined;
+  let config = existing?.config as { apiKeyHash: string; apiKeyPrefix: string } | undefined;
+  let secret = existing?.secret;
+  if (!existing || regenerate) {
+    apiKey = newApiKey();
+    webhookSecret = newWebhookSecret();
+    config = { apiKeyHash: sha256(apiKey), apiKeyPrefix: apiKey.slice(0, 10) };
+    secret = encryptJson({ webhookSecret });
+  }
+  const fullConfig = { ...config!, urlPattern, webhookUrl };
+  await db
+    .insert(integrations)
+    .values({ siteId, type: "CUSTOM", secret: secret!, config: fullConfig })
+    .onConflictDoUpdate({ target: [integrations.siteId, integrations.type], set: { secret: secret!, config: fullConfig } });
+  revalidatePath(`/sites/${siteId}/integrations`);
+  return { ok: apiKey ? "Connected. Copy the keys below now: they won't be shown again." : "Saved", apiKey, webhookSecret };
+}

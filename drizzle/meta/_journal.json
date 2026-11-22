@@ -15,6 +15,13 @@
       "when": 1795175587562,
       "tag": "0001_blueprint",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795343517696,
+      "tag": "0002_custom_integration",
+      "breakpoints": true
     }
   ]
 }
