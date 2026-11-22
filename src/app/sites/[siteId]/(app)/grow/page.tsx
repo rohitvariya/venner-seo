@@ -4,7 +4,7 @@ import { requireSite } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
 import { addAiQuestion, findAiQuestions, hideAiQuestion, runAiCheck, scoreSitePosts, trackCompetitor, writeForQuestion } from "@/app/actions";
 import { AutoRefresh, SubmitButton } from "@/components/ui";
-import { ENGINE_LABEL, businessSources, enabledEngines, guessDomain, namedBusinesses } from "@/lib/visibility/engines";
+import { ENGINE_LABEL, businessSources, enabledEngines, guessDomain, hostOf, namedBusinesses } from "@/lib/visibility/engines";
 import { quoteScoreForArticle } from "@/lib/visibility/quote-score";
 import type { AiEngine, QuoteCheck } from "@/lib/schema";
 
@@ -54,7 +54,10 @@ export default async function GrowPage({ params }: { params: Promise<{ siteId: s
   const othersFor = (qid: string) => {
     const cs = forQ(qid);
     const hosts = cs.flatMap((c) => businessSources(c.citations, site.domain));
-    const names = cs.flatMap((c) => [...c.competitorsMentioned, ...namedBusinesses(c.answerExcerpt ?? "", site.businessName)]);
+    const names = cs.flatMap((c) => [
+      ...c.competitorsMentioned,
+      ...namedBusinesses(c.answerExcerpt ?? "", site.businessName, c.citations.map(hostOf)),
+    ]);
     return { names: [...new Set(names)], hosts: [...new Set(hosts)] };
   };
   const nameCount = new Map<string, { n: number; domain: string | null }>();

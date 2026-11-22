@@ -159,7 +159,7 @@ const GENERIC = /^(short answer|summary|note|tip|tips|important|bottom line|my r
  * Businesses the answer names, from bold list items like "**Narola Infotech**" (how assistants
  * usually present recommendations). Heuristic: short, Title Case, not a generic label.
  */
-export function namedBusinesses(text: string, ownName: string | null): string[] {
+export function namedBusinesses(text: string, ownName: string | null, citedHosts: string[] = []): string[] {
   const out = new Set<string>();
   for (const m of text.matchAll(/\*\*([^*\n]{2,60})\*\*/g)) {
     const name = m[1].trim().replace(/[:.,–-]+$/, "").trim();
@@ -168,7 +168,9 @@ export function namedBusinesses(text: string, ownName: string | null): string[] 
     if (!words.every((w) => /^[A-Z0-9&@]/.test(w) || /^[a-z][A-Z]/.test(w) || /^(and|of|the|&|by|for|in)$/i.test(w))) continue;
     if (ownName && name.toLowerCase().includes(ownName.toLowerCase())) continue;
     // A one-word "name" must look like a brand (CamelCase, inner capitals or digits), not a heading like "Design".
-    if (words.length === 1 && (name.length < 4 || !/[a-z][A-Z]|[A-Z]{2}[a-z]|^[a-z][A-Z]|\d/.test(name))) continue;
+    const brandLike = /[a-z][A-Z]|[A-Z]{2}[a-z]|^[a-z][A-Z]|\d/.test(name);
+    const matchesSite = citedHosts.some((h) => h.split(".")[0].replace(/-/g, "") === name.toLowerCase().replace(/[^a-z0-9]/g, ""));
+    if (words.length === 1 && (name.length < 4 || !(brandLike || matchesSite))) continue;
     out.add(name);
   }
   return [...out];
