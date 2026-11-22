@@ -137,7 +137,7 @@ export function analyzeAnswer(
 
 // Directories, review sites, media and platforms: sources AI uses, but not competitors.
 const NOT_A_BUSINESS =
-  /(goodfirms|clutch|techbehemoths|designrush|sortlist|upwork|fiverr|justdial|indiamart|sulekha|tradeindia|glassdoor|ambitionbox|linkedin|facebook|instagram|youtube|twitter|x\.com|reddit|quora|medium|dev\.to|wikipedia|google|bing|forbes|economictimes|indiatimes|business-standard|livemint|yourstory|inc42|g2\.com|capterra|trustpilot|crunchbase|statista|gartner|shopify\.com|wordpress\.org|github)/i;
+  /(goodfirms|clutch|techbehemoths|designrush|sortlist|upwork|fiverr|justdial|indiamart|sulekha|tradeindia|glassdoor|ambitionbox|linkedin|facebook|instagram|youtube|twitter|x\.com|reddit|quora|medium|dev\.to|wikipedia|google|bing|forbes|economictimes|indiatimes|business-standard|livemint|yourstory|inc42|g2\.com|capterra|trustpilot|crunchbase|statista|gartner|shopify\.com|wordpress\.org|github|mobileappdaily|superbcompanies|topdevelopers|themanifest|appfutura|selectedfirms|softwaresuggest|techreviewer|itfirms|topsoftwarecompanies|goodfirm|extract\.co|softwareworld|businessofapps|wadline|f6s|yelp|tripadvisor|ambitionbox|naukri|indeed)/i;
 
 export function hostOf(u: string) {
   try {
@@ -167,6 +167,8 @@ export function namedBusinesses(text: string, ownName: string | null): string[] 
     if (words.length > 5 || GENERIC.test(name) || /^\d|[?:()₹$%]/.test(name)) continue;
     if (!words.every((w) => /^[A-Z0-9&@]/.test(w) || /^[a-z][A-Z]/.test(w) || /^(and|of|the|&|by|for|in)$/i.test(w))) continue;
     if (ownName && name.toLowerCase().includes(ownName.toLowerCase())) continue;
+    // A one-word "name" must look like a brand (CamelCase, inner capitals or digits), not a heading like "Design".
+    if (words.length === 1 && (name.length < 4 || !/[a-z][A-Z]|[A-Z]{2}[a-z]|^[a-z][A-Z]|\d/.test(name))) continue;
     out.add(name);
   }
   return [...out];
