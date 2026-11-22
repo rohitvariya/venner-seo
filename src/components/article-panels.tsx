@@ -1,5 +1,6 @@
 import type { ArticleStatus, FactIssue } from "@/lib/schema";
 import type { Brief } from "@/lib/seo/writer";
+import { stripMarkdownLinks } from "@/lib/headings";
 
 const STAGES = [
   { label: "Planned", reached: () => true },
@@ -95,7 +96,7 @@ export function FactIssues({ issues }: { issues: FactIssue[] | null }) {
         <ul className="space-y-3 text-sm">
           {issues.map((i, n) => (
             <li key={n}>
-              <p className="italic text-slate-700">“{i.claim}”</p>
+              <p className="italic text-slate-700">“{stripMarkdownLinks(i.claim)}”</p>
               <p className="text-amber-700">{i.problem}</p>
               <p className="text-slate-500">Fix: {i.suggestion}</p>
             </li>

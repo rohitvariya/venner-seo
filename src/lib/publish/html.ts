@@ -1,5 +1,6 @@
 import { marked } from "marked";
 import type { Blueprint } from "../schema";
+import { addHeadingIds } from "../headings";
 
 type Faq = { question: string; answer: string }[];
 
@@ -35,7 +36,7 @@ export function articleHtml(
   if (author) {
     parts.push(`<p class="vs-byline">By <strong>${esc(author.name)}</strong>${author.jobTitle ? `, ${esc(author.jobTitle)}` : ""}</p>`);
   }
-  parts.push(marked.parse(contentMd, { async: false }) as string);
+  parts.push(addHeadingIds(marked.parse(contentMd, { async: false }) as string));
 
   if (author && author.bio) {
     const links = [

@@ -4,6 +4,7 @@ import { useActionState, useMemo, useState } from "react";
 import { marked } from "marked";
 import type { Article } from "@/lib/schema";
 import { saveArticle } from "@/app/actions";
+import { addHeadingIds } from "@/lib/headings";
 import { FormMessage, SubmitButton } from "./ui";
 
 export function ArticleEditor({ siteId, article }: { siteId: string; article: Article }) {
@@ -11,7 +12,7 @@ export function ArticleEditor({ siteId, article }: { siteId: string; article: Ar
   const [content, setContent] = useState(article.contentMd ?? "");
   const [metaDesc, setMetaDesc] = useState(article.metaDescription ?? "");
   const [tab, setTab] = useState<"edit" | "preview">("preview");
-  const html = useMemo(() => marked.parse(content, { async: false }) as string, [content]);
+  const html = useMemo(() => addHeadingIds(marked.parse(content, { async: false }) as string), [content]);
   const words = content.split(/\s+/).filter(Boolean).length;
 
   return (
