@@ -7,6 +7,7 @@ import { loadContext } from "../jobs";
 import { decryptJson } from "../crypto";
 import { createLocalPost, listReviews, replyToReview, starsOf, type GbpSecret } from "../gbp";
 import { enqueue } from "../queue";
+import { pickPhoto } from "../photos";
 import type { PostChannel } from "../schema";
 
 const { sites, articles, socialPosts, reviews, integrations } = schema;
@@ -81,7 +82,7 @@ export async function generatePosts(siteId: string) {
   for (const p of out.posts) if (channels.includes(p.channel)) byChannel.set(p.channel, [...(byChannel.get(p.channel) ?? []), p]);
   const rows: (typeof socialPosts.$inferInsert)[] = [];
   for (const [channel, posts] of byChannel) {
-    posts.forEach((p, i) => {
+    for (const [i, p] of posts.entries()) {
       const day = new Date();
       day.setDate(day.getDate() + 1 + Math.floor(((i + 0.5) * 14) / posts.length));
       day.setHours(10, 30, 0, 0);
@@ -92,12 +93,12 @@ export async function generatePosts(siteId: string) {
         text: p.text.trim(),
         articleId: article?.id ?? null,
         link: article?.publishedUrl ?? `https://${site.domain}`,
-        imageUrl: article?.heroImageUrl ?? null,
+        imageUrl: article?.heroImageUrl ?? (await pickPhoto(siteId, p.text, site.photoUsage))?.url ?? null,
         cta: channel === "google" ? (article ? "LEARN_MORE" : p.cta ?? "CALL") : null,
         status: "DRAFT",
         scheduledAt: day,
       });
-    });
+    }
   }
   if (rows.length) await db.insert(socialPosts).values(rows);
 }

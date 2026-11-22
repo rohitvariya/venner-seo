@@ -1,7 +1,9 @@
 import { relations } from "drizzle-orm";
 import {
-  boolean, date, doublePrecision, index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex,
+  boolean, customType, date, doublePrecision, index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex,
 } from "drizzle-orm/pg-core";
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "bytea" });
 import { createId } from "./id";
 
 const id = () => text("id").primaryKey().$defaultFn(createId);
@@ -99,6 +101,7 @@ export const sites = pgTable(
     googlePostsPerWeek: integer("google_posts_per_week").notNull().default(2),
     socialChannels: jsonb("social_channels").$type<PostChannel[]>().notNull().default(["google", "facebook", "instagram", "linkedin"]),
     autoReplyPositive: boolean("auto_reply_positive").notNull().default(false),
+    photoUsage: text("photo_usage").$type<"always" | "relevant" | "never">().notNull().default("relevant"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -336,6 +339,24 @@ export const reviews = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("reviews_site_external").on(t.siteId, t.externalName)],
+);
+
+/** The business's own photos (work, team, products), used as featured images before stock photos. */
+export const photos = pgTable(
+  "photos",
+  {
+    id: id(),
+    siteId: text("site_id").notNull().references(() => sites.id, { onDelete: "cascade" }),
+    mime: text("mime").notNull(),
+    data: bytea("data").notNull(),
+    bytes: integer("bytes").notNull(),
+    filename: text("filename"),
+    description: text("description"),
+    tags: jsonb("tags").$type<string[]>().notNull().default([]),
+    usedCount: integer("used_count").notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [index("photos_site").on(t.siteId)],
 );
 
 // ---- Relations (for db.query.* with `with`) ----

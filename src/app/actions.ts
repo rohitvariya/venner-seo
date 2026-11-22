@@ -596,3 +596,128 @@ export async function chooseGbpLocation(siteId: string, form: FormData) {
   await enqueue("sync-reviews", { siteId });
   revalidatePath(`/sites/${siteId}/integrations`);
 }
+
+// ---------- Content hub: calendar, create menu, photos ----------
+
+/** Drag-and-drop on the calendar: moves an article or post to another day (keeps its time). */
+export async function rescheduleItem(siteId: string, kind: "article" | "post", id: string, dayIso: string) {
+  await requireSite(siteId);
+  const day = new Date(`${dayIso}T00:00:00`);
+  if (Number.isNaN(day.getTime())) return { error: "Bad date" };
+  const withTime = (old: Date | null) => {
+    const d = new Date(day);
+    const src = old ?? new Date(new Date().setHours(10, 0, 0, 0));
+    d.setHours(src.getHours(), src.getMinutes(), 0, 0);
+    return d;
+  };
+  if (kind === "article") {
+    const a = await db.query.articles.findFirst({ where: and(eq(articles.id, id), eq(articles.siteId, siteId)) });
+    if (!a || a.status === "PUBLISHED" || a.status === "PUBLISHING") return { error: "Published articles can't be moved." };
+    if (a.status === "SCHEDULED") await db.update(articles).set({ scheduledAt: withTime(a.scheduledAt) }).where(eq(articles.id, id));
+    else await db.update(articles).set({ plannedFor: withTime(a.plannedFor) }).where(eq(articles.id, id));
+  } else {
+    const p = await db.query.socialPosts.findFirst({ where: and(eq(schema.socialPosts.id, id), eq(schema.socialPosts.siteId, siteId)) });
+    if (!p || p.status === "PUBLISHED" || p.status === "PUBLISHING") return { error: "Posted items can't be moved." };
+    await db.update(schema.socialPosts).set({ scheduledAt: withTime(p.scheduledAt) }).where(eq(schema.socialPosts.id, id));
+  }
+  revalidatePath(`/sites/${siteId}`, "layout");
+  return { ok: true };
+}
+
+export async function removeFromPlan(siteId: string, kind: "article" | "post", id: string) {
+  await requireSite(siteId);
+  if (kind === "article") {
+    const a = await db.query.articles.findFirst({ where: and(eq(articles.id, id), eq(articles.siteId, siteId)) });
+    if (!a || a.status === "PUBLISHED") return;
+    await db.delete(articles).where(eq(articles.id, id));
+    if (a.keywordId) await db.update(keywords).set({ status: "REJECTED" }).where(eq(keywords.id, a.keywordId));
+  } else {
+    await db.delete(schema.socialPosts).where(and(eq(schema.socialPosts.id, id), eq(schema.socialPosts.siteId, siteId)));
+  }
+  revalidatePath(`/sites/${siteId}`, "layout");
+}
+
+/** Create → Write with AI → Blog article: plans and writes an article for a topic or keyword. */
+export async function createArticleFromTopic(siteId: string, _: FormState, form: FormData): Promise<FormState> {
+  await requireSite(siteId);
+  const topic = String(form.get("topic") ?? "").trim();
+  if (topic.length < 4) return { error: "Enter a topic or keyword." };
+  const phrase = topic.toLowerCase().replace(/[?!.]+$/, "");
+  const [kw] = await db
+    .insert(keywords)
+    .values({ siteId, phrase, intent: "informational", cluster: "Added by you", status: "PLANNED" })
+    .onConflictDoUpdate({ target: [keywords.siteId, keywords.phrase], set: { status: "PLANNED" } })
+    .returning({ id: keywords.id });
+  const [a] = await db.insert(articles).values({ siteId, keywordId: kw.id, title: topic, status: "IDEA", plannedFor: new Date() }).returning({ id: articles.id });
+  await enqueue("write-article", { articleId: a.id });
+  redirect(`/sites/${siteId}/content/${a.id}`);
+}
+
+/** Create → Write it myself → Blog article. */
+export async function createBlankArticle(siteId: string) {
+  await requireSite(siteId);
+  const [a] = await db
+    .insert(articles)
+    .values({ siteId, title: "Untitled article", contentMd: "Start writing here…", status: "REVIEW", plannedFor: new Date() })
+    .returning({ id: articles.id });
+  redirect(`/sites/${siteId}/content/${a.id}`);
+}
+
+/** Create → social/Google post, written by AI (one post) or blank for writing yourself. */
+export async function createPost(siteId: string, channel: "google" | "facebook" | "instagram" | "linkedin" | "x", withAi: boolean) {
+  const { site } = await requireSite(siteId);
+  let text = "Write your post here…";
+  if (withAi) {
+    const { loadContext } = await import("@/lib/jobs");
+    const { text: ai } = await import("@/lib/ai");
+    const { context } = await loadContext(siteId);
+    text = await ai({
+      system: `You write one ${channel === "google" ? "Google Business Profile update (80-200 words, no hashtags or emojis, local and practical)" : `${channel} post in that platform's style`} for a business. Ground it in real services; never invent offers, prices or numbers. Output only the post text.`,
+      prompt: `${context}\n\nWrite one fresh post with a useful tip or insight for this business's customers.`,
+      maxTokens: 700,
+    });
+  }
+  const when = new Date(Date.now() + 86400_000);
+  when.setHours(10, 30, 0, 0);
+  await db.insert(schema.socialPosts).values({
+    siteId, channel, text, link: `https://${site.domain}`, cta: channel === "google" ? "CALL" : null, status: "DRAFT", scheduledAt: when,
+  });
+  redirect(`/sites/${siteId}/content?tab=${channel === "google" ? "google" : "social"}`);
+}
+
+export async function uploadPhotos(siteId: string, _: FormState, form: FormData): Promise<FormState> {
+  await requireSite(siteId);
+  const files = form.getAll("photos").filter((f): f is File => f instanceof File && f.size > 0).slice(0, 10);
+  if (files.length === 0) return { error: "Choose up to 10 photos." };
+  const { savePhoto } = await import("@/lib/photos");
+  const errors: string[] = [];
+  for (const f of files) {
+    try {
+      await savePhoto(siteId, f);
+    } catch (e) {
+      errors.push(e instanceof Error ? e.message : String(e));
+    }
+  }
+  revalidatePath(`/sites/${siteId}/content`);
+  return errors.length ? { error: errors.join(" · ") } : { ok: `${files.length} photo${files.length === 1 ? "" : "s"} added and described` };
+}
+
+export async function updatePhoto(siteId: string, photoId: string, form: FormData) {
+  await requireSite(siteId);
+  const description = String(form.get("description") ?? "").trim() || null;
+  await db.update(schema.photos).set({ description }).where(and(eq(schema.photos.id, photoId), eq(schema.photos.siteId, siteId)));
+  revalidatePath(`/sites/${siteId}/content`);
+}
+
+export async function deletePhoto(siteId: string, photoId: string) {
+  await requireSite(siteId);
+  await db.delete(schema.photos).where(and(eq(schema.photos.id, photoId), eq(schema.photos.siteId, siteId)));
+  revalidatePath(`/sites/${siteId}/content`);
+}
+
+export async function savePhotoUsage(siteId: string, form: FormData) {
+  await requireSite(siteId);
+  const v = String(form.get("photoUsage"));
+  if (v === "always" || v === "relevant" || v === "never") await db.update(sites).set({ photoUsage: v }).where(eq(sites.id, siteId));
+  revalidatePath(`/sites/${siteId}/content`);
+}

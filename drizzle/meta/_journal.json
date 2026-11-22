@@ -36,6 +36,13 @@
       "when": 1795345618484,
       "tag": "0004_gbp_social",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1795347433786,
+      "tag": "0005_photos",
+      "breakpoints": true
     }
   ]
 }

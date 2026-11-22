@@ -13,6 +13,7 @@ import { publishToShopify, type ShopifySecret } from "./publish/shopify";
 import { fetchDaily, fetchTopQueries, type GscSecret } from "./gsc";
 import { enqueue } from "./queue";
 import { findStockPhoto } from "./images";
+import { pickPhoto } from "./photos";
 import { articleUrl, publicArticle, sendWebhook, type CustomConfig, type CustomSecret } from "./publish/custom";
 import type { Brief } from "./seo/writer";
 
@@ -254,6 +255,14 @@ export async function publishArticleJob(articleId: string, opts: { draft?: boole
     let featuredImage: { url: string; alt: string; caption?: string } | null = article.heroImageUrl
       ? { url: article.heroImageUrl, alt: article.title }
       : null;
+    if (!featuredImage) {
+      // The business's own photos first, then a stock photo.
+      const own = await pickPhoto(article.siteId, `${keyword ?? ""} ${article.title}`, article.site.photoUsage);
+      if (own) {
+        featuredImage = own;
+        await db.update(articles).set({ heroImageUrl: own.url }).where(eq(articles.id, articleId));
+      }
+    }
     if (!featuredImage) {
       try {
         const photo = await findStockPhoto(keyword ?? article.title);
