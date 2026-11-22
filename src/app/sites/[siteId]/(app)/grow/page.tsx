@@ -2,9 +2,9 @@ import Link from "next/link";
 import { and, desc, eq, isNotNull } from "drizzle-orm";
 import { requireSite } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
-import { addAiQuestion, findAiQuestions, hideAiQuestion, runAiCheck, scoreSitePosts, writeForQuestion } from "@/app/actions";
+import { addAiQuestion, findAiQuestions, hideAiQuestion, runAiCheck, scoreSitePosts, trackCompetitor, writeForQuestion } from "@/app/actions";
 import { AutoRefresh, SubmitButton } from "@/components/ui";
-import { ENGINE_LABEL, enabledEngines } from "@/lib/visibility/engines";
+import { ENGINE_LABEL, businessSources, enabledEngines, guessDomain, namedBusinesses } from "@/lib/visibility/engines";
 import { quoteScoreForArticle } from "@/lib/visibility/quote-score";
 import type { AiEngine, QuoteCheck } from "@/lib/schema";
 
@@ -18,7 +18,7 @@ export default async function GrowPage({ params }: { params: Promise<{ siteId: s
   const { siteId } = await params;
   const { site } = await requireSite(siteId);
   const engines = enabledEngines();
-  const [questions, checks, posts, ownArticles] = await Promise.all([
+  const [questions, checks, posts, ownArticles, tracked] = await Promise.all([
     db.query.aiQuestions.findMany({
       where: and(eq(schema.aiQuestions.siteId, siteId), eq(schema.aiQuestions.hidden, false)),
       orderBy: schema.aiQuestions.topic,
@@ -29,7 +29,9 @@ export default async function GrowPage({ params }: { params: Promise<{ siteId: s
       where: and(eq(schema.articles.siteId, siteId), isNotNull(schema.articles.contentMd)),
       columns: { id: true, title: true, contentMd: true, updatedAt: true, status: true },
     }),
+    db.query.competitors.findMany({ where: eq(schema.competitors.siteId, siteId) }),
   ]);
+  const trackedDomains = new Set(tracked.map((c) => c.domain.replace(/^www\./, "")));
   const busy = site.aiStatus === "QUEUED" || site.aiStatus === "RUNNING";
 
   // Latest answer per question + engine.
@@ -47,18 +49,30 @@ export default async function GrowPage({ params }: { params: Promise<{ siteId: s
     return { checked: list.length, mentioned: list.filter((c) => c.mentioned).length };
   };
 
-  // Competitor share of voice across latest answers.
-  const compCount = new Map<string, number>();
+  // Who AI recommends instead: tracked competitors plus businesses AI names in its answers
+  // (auto-detected), and the business websites it cites as sources.
+  const othersFor = (qid: string) => {
+    const cs = forQ(qid);
+    const hosts = cs.flatMap((c) => businessSources(c.citations, site.domain));
+    const names = cs.flatMap((c) => [...c.competitorsMentioned, ...namedBusinesses(c.answerExcerpt ?? "", site.businessName)]);
+    return { names: [...new Set(names)], hosts: [...new Set(hosts)] };
+  };
+  const nameCount = new Map<string, { n: number; domain: string | null }>();
+  const hostCount = new Map<string, number>();
   for (const q of checkedQs) {
-    const names = new Set(forQ(q.id).flatMap((c) => c.competitorsMentioned));
-    for (const n of names) compCount.set(n, (compCount.get(n) ?? 0) + 1);
+    const { names, hosts } = othersFor(q.id);
+    for (const n of names) {
+      const prev = nameCount.get(n);
+      nameCount.set(n, { n: (prev?.n ?? 0) + 1, domain: prev?.domain ?? guessDomain(n, hosts) });
+    }
+    for (const h of hosts) hostCount.set(h, (hostCount.get(h) ?? 0) + 1);
   }
-  const topCompetitors = [...compCount.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const topCompetitors = [...nameCount.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, 10);
+  const topSources = [...hostCount.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
 
-  const quickWins = checkedQs.filter((q) => {
-    const cs = forQ(q.id);
-    return !cs.some((c) => c.mentioned) && cs.some((c) => c.competitorsMentioned.length > 0);
-  });
+  const quickWins = checkedQs
+    .filter((q) => !forQ(q.id).some((c) => c.mentioned) && othersFor(q.id).names.length > 0)
+    .sort((a, b) => othersFor(b.id).names.length - othersFor(a.id).names.length);
   const missing = checkedQs.filter((q) => !forQ(q.id).some((c) => c.mentioned) && !quickWins.includes(q));
 
   // Articles to improve (lowest scores first).
@@ -111,20 +125,47 @@ export default async function GrowPage({ params }: { params: Promise<{ siteId: s
           </div>
           {busy && <p className="card text-sm text-slate-600">Asking AI assistants your customers&apos; questions… this takes a few minutes.</p>}
 
-          {topCompetitors.length > 0 && (
-            <div className="card">
-              <h2 className="mb-2 font-semibold">Who AI recommends instead</h2>
-              <div className="flex flex-wrap gap-2 text-sm">
-                {topCompetitors.map(([name, n]) => (
-                  <span key={name} className="rounded-full bg-slate-100 px-3 py-1">{name} <span className="text-slate-500">· {n} {n === 1 ? "question" : "questions"}</span></span>
-                ))}
-              </div>
+          {(topCompetitors.length > 0 || topSources.length > 0) && (
+            <div className="card space-y-4">
+              {topCompetitors.length > 0 && (
+                <div>
+                  <h2 className="font-semibold">Who AI recommends instead</h2>
+                  <p className="mb-2 text-xs text-slate-500">Businesses named in AI answers to your customers&apos; questions. Track the real competitors to follow them over time.</p>
+                  <div className="flex flex-wrap gap-2 text-sm">
+                    {topCompetitors.map(([name, { n, domain }]) => (
+                      <span key={name} className="flex items-center gap-2 rounded-full bg-slate-100 py-1 pl-3 pr-1">
+                        {name} <span className="text-slate-500">· {n} {n === 1 ? "question" : "questions"}</span>
+                        {domain && !trackedDomains.has(domain) ? (
+                          <form action={trackCompetitor.bind(null, siteId, name, domain)}>
+                            <button className="rounded-full bg-white px-2 py-0.5 text-xs text-brand-600 hover:bg-brand-50" title={`Track ${domain}`}>+ Track</button>
+                          </form>
+                        ) : domain ? (
+                          <span className="rounded-full bg-white px-2 py-0.5 text-xs text-emerald-700">Tracked</span>
+                        ) : <span className="pr-2" />}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {topSources.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold">Websites AI uses as sources</h3>
+                  <p className="mb-2 text-xs text-slate-500">Business sites (directories excluded) whose pages AI read to answer. Pages like theirs are what you need to compete with.</p>
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    {topSources.map(([h, n]) => (
+                      <a key={h} href={`https://${h}`} target="_blank" rel="noreferrer" className="rounded-full border border-slate-200 px-2 py-0.5 text-slate-600 hover:border-brand-500">
+                        {h} · {n}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
           <section className="card">
             <h2 className="font-semibold">Quick wins</h2>
-            <p className="mb-3 text-sm text-slate-500">AI names your competitors for these but not you. One strong article on each is the fastest way in.</p>
+            <p className="mb-3 text-sm text-slate-500">AI names other businesses for these but not you. One strong, specific article on each is the fastest way in.</p>
             {quickWins.length === 0 ? (
               <p className="text-sm text-slate-400">No quick wins right now{checkedQs.length ? "." : ": run a check first."}</p>
             ) : (
@@ -133,7 +174,7 @@ export default async function GrowPage({ params }: { params: Promise<{ siteId: s
                   <li key={q.id} className="flex items-center justify-between gap-4 py-2">
                     <div className="min-w-0">
                       <div className="text-sm font-medium">{q.question}</div>
-                      <div className="text-xs text-slate-500">AI names: {[...new Set(forQ(q.id).flatMap((c) => c.competitorsMentioned))].join(", ")}</div>
+                      <div className="text-xs text-slate-500">AI names: {othersFor(q.id).names.slice(0, 6).join(", ")}</div>
                     </div>
                     <form action={writeForQuestion.bind(null, siteId, q.id)}>
                       <SubmitButton className="btn-secondary whitespace-nowrap" pending="Planning…">Write an article for this</SubmitButton>

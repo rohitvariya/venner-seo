@@ -134,3 +134,51 @@ export function analyzeAnswer(
     .map((c) => c.name);
   return { mentioned, cited, competitorsMentioned };
 }
+
+// Directories, review sites, media and platforms: sources AI uses, but not competitors.
+const NOT_A_BUSINESS =
+  /(goodfirms|clutch|techbehemoths|designrush|sortlist|upwork|fiverr|justdial|indiamart|sulekha|tradeindia|glassdoor|ambitionbox|linkedin|facebook|instagram|youtube|twitter|x\.com|reddit|quora|medium|dev\.to|wikipedia|google|bing|forbes|economictimes|indiatimes|business-standard|livemint|yourstory|inc42|g2\.com|capterra|trustpilot|crunchbase|statista|gartner|shopify\.com|wordpress\.org|github)/i;
+
+export function hostOf(u: string) {
+  try {
+    return new URL(u).hostname.replace(/^www\./, "").toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+/** Business websites AI used as sources (directories, media and your own site excluded). */
+export function businessSources(citations: string[], ownDomain: string) {
+  const own = ownDomain.replace(/^www\./, "").toLowerCase();
+  return [...new Set(citations.map(hostOf))].filter((h) => h && h !== own && !h.endsWith(`.${own}`) && !NOT_A_BUSINESS.test(h));
+}
+
+const GENERIC = /^(short answer|summary|note|tip|tips|important|bottom line|my recommendation|recommendation|example|cost|timeline|pros|cons|why|how|what|step \d+|option \d+|budget|verdict|key takeaways?)$/i;
+
+/**
+ * Businesses the answer names, from bold list items like "**Narola Infotech**" (how assistants
+ * usually present recommendations). Heuristic: short, Title Case, not a generic label.
+ */
+export function namedBusinesses(text: string, ownName: string | null): string[] {
+  const out = new Set<string>();
+  for (const m of text.matchAll(/\*\*([^*\n]{2,60})\*\*/g)) {
+    const name = m[1].trim().replace(/[:.,–-]+$/, "").trim();
+    const words = name.split(/\s+/);
+    if (words.length > 5 || GENERIC.test(name) || /^\d|[?:()₹$%]/.test(name)) continue;
+    if (!words.every((w) => /^[A-Z0-9&@]/.test(w) || /^[a-z][A-Z]/.test(w) || /^(and|of|the|&|by|for|in)$/i.test(w))) continue;
+    if (ownName && name.toLowerCase().includes(ownName.toLowerCase())) continue;
+    out.add(name);
+  }
+  return [...out];
+}
+
+/** Best-effort website for a named business, from the hosts the answer cited ("Narola Infotech" → narolainfotech.com). */
+export function guessDomain(name: string, hosts: string[]) {
+  const squash = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const first = name.toLowerCase().split(/\s+/)[0].replace(/[^a-z0-9]/g, "");
+  return (
+    hosts.find((h) => h.split(".")[0].replace(/-/g, "") === squash) ??
+    hosts.find((h) => first.length >= 4 && h.split(".")[0].startsWith(first)) ??
+    null
+  );
+}

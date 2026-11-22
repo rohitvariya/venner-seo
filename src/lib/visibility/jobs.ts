@@ -70,7 +70,7 @@ export async function checkVisibility(siteId: string) {
             engine,
             ...result,
             citations: answer.citations.slice(0, 20),
-            answerExcerpt: answer.text.slice(0, 1500),
+            answerExcerpt: answer.text.slice(0, 4000),
           });
         } catch (err) {
           await db.insert(aiChecks).values({

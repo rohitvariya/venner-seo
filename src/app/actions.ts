@@ -489,3 +489,12 @@ export async function scoreSitePosts(siteId: string) {
   await enqueue("score-posts", { siteId });
   revalidatePath(`/sites/${siteId}/grow`);
 }
+
+export async function trackCompetitor(siteId: string, name: string, domain: string) {
+  await requireSite(siteId);
+  const existing = await db.query.competitors.findFirst({
+    where: and(eq(competitors.siteId, siteId), eq(competitors.domain, domain)),
+  });
+  if (!existing && name && domain) await db.insert(competitors).values({ siteId, name, domain });
+  revalidatePath(`/sites/${siteId}`, "layout");
+}
