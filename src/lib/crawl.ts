@@ -8,7 +8,18 @@ export type CrawledPage = {
   links: string[];
 };
 
-const UA = "Mozilla/5.0 (compatible; VennerSEOBot/1.0; +https://vennerinfotech.com)";
+// A normal browser identity: many shared hosts and firewalls block unknown bot user agents.
+const UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36 VennerSEO/1.0";
+
+let lastFetchError = "";
+
+function describe(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const cause = (err as Error & { cause?: { code?: string; message?: string } }).cause;
+  const detail = cause?.code ?? cause?.message;
+  return detail ? `${err.message} (${detail})` : err.message;
+}
 
 export function normalizeDomain(input: string): string {
   let d = input.trim().toLowerCase();
@@ -16,16 +27,24 @@ export function normalizeDomain(input: string): string {
   return d.replace(/^www\./, "");
 }
 
-async function fetchText(url: string, timeoutMs = 15_000): Promise<string | null> {
+async function fetchText(url: string, timeoutMs = 20_000): Promise<string | null> {
   try {
     const res = await fetch(url, {
-      headers: { "User-Agent": UA, Accept: "text/html,application/xml" },
+      headers: {
+        "User-Agent": UA,
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
       redirect: "follow",
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      lastFetchError = `${url} returned HTTP ${res.status}`;
+      return null;
+    }
     return await res.text();
-  } catch {
+  } catch (err) {
+    lastFetchError = `${url}: ${describe(err)}`;
     return null;
   }
 }
@@ -84,13 +103,21 @@ async function sitemapUrls(base: string, host: string): Promise<string[]> {
 /** Crawls the homepage, sitemap and internal links, preferring service/about/contact pages. */
 export async function crawlSite(domain: string, maxPages = 25): Promise<CrawledPage[]> {
   const host = normalizeDomain(domain);
-  let base = `https://${host}`;
-  let homeHtml = await fetchText(base);
-  if (!homeHtml) {
-    base = `https://www.${host}`;
-    homeHtml = await fetchText(base);
+  let base = "";
+  let homeHtml: string | null = null;
+  const errors: string[] = [];
+  for (const candidate of [`https://${host}`, `https://www.${host}`, `http://${host}`]) {
+    homeHtml = await fetchText(candidate);
+    if (homeHtml) {
+      base = candidate;
+      break;
+    }
+    errors.push(lastFetchError);
   }
-  if (!homeHtml) throw new Error(`Could not load ${host}. Check the domain is correct and online.`);
+  if (!homeHtml) {
+    console.error(`Crawl failed for ${host}:\n  ${errors.join("\n  ")}`);
+    throw new Error(`Could not load ${host}. ${errors[0] ?? ""}`.trim());
+  }
 
   const home = parsePage(base + "/", homeHtml, host);
   const candidates = new Set<string>([...home.links, ...(await sitemapUrls(base, host))]);
