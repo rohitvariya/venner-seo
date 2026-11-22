@@ -61,11 +61,12 @@ Open http://localhost:3000/signup and create your account.
 | `ANTHROPIC_API_KEY` | yes | From console.anthropic.com |
 | `ANTHROPIC_MODEL` | no | Default `claude-sonnet-5-5` |
 | `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD` | recommended | Without them keywords have no volume and competitors aren't auto-found |
+| `UNSPLASH_ACCESS_KEY` | optional | Free key from unsplash.com/developers. Auto-picks a featured image per article (photographer credited in the caption) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | for GSC | Google Cloud → APIs & Services → enable *Google Search Console API* → OAuth client (Web). Redirect URI: `${APP_URL}/api/integrations/gsc/callback` |
 
 ## Connecting a client site
 
-- **WordPress:** in wp-admin go to Users → Profile → *Application Passwords*, create one, and paste it with the username and site URL on the Integrations page.
+- **WordPress:** in wp-admin go to Users → Profile → *Application Passwords*, create one, and paste it with the username and site URL on the Integrations page. Posts get a matching category (falling back to "Blog"), tags, a featured image, and Rank Math SEO title/description/focus keyword. Articles can be sent as drafts first.
 - **Shopify:** in Shopify admin go to Settings → Apps → *Develop apps*. Create an app with the `read_content` and `write_content` Admin API scopes, install it, and paste the Admin API access token plus the `.myshopify.com` domain.
 - **Search Console:** click *Connect with Google* and sign in with an account that has access to the site's property.
 

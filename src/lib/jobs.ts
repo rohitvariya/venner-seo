@@ -12,6 +12,8 @@ import { publishToWordPress, type WordPressSecret } from "./publish/wordpress";
 import { publishToShopify, type ShopifySecret } from "./publish/shopify";
 import { fetchDaily, fetchTopQueries, type GscSecret } from "./gsc";
 import { enqueue } from "./queue";
+import { findStockPhoto } from "./images";
+import type { Brief } from "./seo/writer";
 
 const { sites, sitePages, services, serviceAreas, competitors, keywords, articles, integrations, gscDailyMetrics, gscQueryMetrics } = schema;
 
@@ -227,11 +229,31 @@ export async function publishArticleJob(articleId: string, opts: { draft?: boole
   }
   await db.update(articles).set({ status: "PUBLISHING", error: null }).where(eq(articles.id, articleId));
   try {
+    const brief = article.brief as Brief | null;
+    const keyword = (await db.query.keywords.findFirst({ where: eq(keywords.id, article.keywordId ?? "") }))?.phrase ?? null;
+
+    // Featured image: the one set in the editor, else a stock photo for the keyword (if Unsplash is configured).
+    let featuredImage: { url: string; alt: string; caption?: string } | null = article.heroImageUrl
+      ? { url: article.heroImageUrl, alt: article.title }
+      : null;
+    if (!featuredImage) {
+      try {
+        const photo = await findStockPhoto(keyword ?? article.title);
+        if (photo) {
+          featuredImage = photo;
+          await db.update(articles).set({ heroImageUrl: photo.url }).where(eq(articles.id, articleId));
+        }
+      } catch (err) {
+        console.error("Stock photo lookup failed:", err);
+      }
+    }
+
     const html = articleHtml(article.contentMd, article.faq, {
       title: article.title,
       description: article.metaDescription,
       url: article.publishedUrl,
-      heroImageUrl: article.heroImageUrl,
+      // The featured image is shown by the theme (WordPress) / blog template (Shopify), so not repeated inline.
+      heroImageUrl: null,
       author: article.site.blueprint.author,
       publisher: article.site.businessName ?? article.site.domain,
       datePublished: article.publishedAt ?? new Date(),
@@ -245,6 +267,14 @@ export async function publishArticleJob(articleId: string, opts: { draft?: boole
             excerpt: article.metaDescription,
             status: draft ? "draft" : "publish",
             externalId: article.externalId,
+            category: brief?.category,
+            tags: brief?.tags,
+            featuredImage,
+            seo: {
+              title: article.metaTitle || article.title,
+              description: article.metaDescription ?? "",
+              focusKeyword: keyword ?? "",
+            },
           })
         : await publishToShopify(decryptJson<ShopifySecret>(integration.secret), {
             title: article.title,
@@ -254,13 +284,23 @@ export async function publishArticleJob(articleId: string, opts: { draft?: boole
             author: article.site.blueprint.author?.name || article.site.businessName || article.site.domain,
             published: !draft,
             externalId: article.externalId,
+            tags: brief?.tags,
+            imageUrl: featuredImage?.url ?? null,
+            imageAlt: featuredImage?.alt ?? null,
           });
+    const notes: string[] = "notes" in result && Array.isArray(result.notes) ? (result.notes as string[]) : [];
     await db
       .update(articles)
       .set(
         draft
-          ? { status: "APPROVED", publishedUrl: result.url, externalId: result.externalId }
-          : { status: "PUBLISHED", publishedAt: article.publishedAt ?? new Date(), publishedUrl: result.url, externalId: result.externalId },
+          ? { status: "APPROVED", publishedUrl: result.url, externalId: result.externalId, error: notes.length ? `Note: ${notes.join(" ")}` : null }
+          : {
+              status: "PUBLISHED",
+              publishedAt: article.publishedAt ?? new Date(),
+              publishedUrl: result.url,
+              externalId: result.externalId,
+              error: notes.length ? `Note: ${notes.join(" ")}` : null,
+            },
       )
       .where(eq(articles.id, articleId));
   } catch (err) {

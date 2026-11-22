@@ -23,7 +23,18 @@ export async function listBlogs(s: ShopifySecret) {
 
 export async function publishToShopify(
   s: ShopifySecret,
-  post: { title: string; slug: string | null; html: string; excerpt: string | null; author: string; published: boolean; externalId?: string | null },
+  post: {
+    title: string;
+    slug: string | null;
+    html: string;
+    excerpt: string | null;
+    author: string;
+    published: boolean;
+    externalId?: string | null;
+    tags?: string[];
+    imageUrl?: string | null;
+    imageAlt?: string | null;
+  },
 ) {
   let blogId = s.blogId;
   if (!blogId) {
@@ -38,6 +49,8 @@ export async function publishToShopify(
     summary_html: post.excerpt ?? undefined,
     author: post.author,
     published: post.published,
+    tags: post.tags?.length ? post.tags.join(", ") : undefined,
+    image: post.imageUrl && !post.externalId ? { src: post.imageUrl, alt: post.imageAlt ?? post.title } : undefined,
   };
   const url = post.externalId
     ? `${base(s)}/blogs/${blogId}/articles/${post.externalId}.json`
