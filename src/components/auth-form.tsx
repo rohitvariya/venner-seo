@@ -50,6 +50,9 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
             <>Have an account? <Link className="text-brand-500" href="/login">Sign in</Link></>
           )}
         </p>
+        <p className="text-center text-xs text-slate-400">
+          <Link href="/privacy">Privacy Policy</Link> · <Link href="/terms">Terms of Service</Link>
+        </p>
       </form>
     </div>
   );
