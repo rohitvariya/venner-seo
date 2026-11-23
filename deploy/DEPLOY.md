@@ -1,5 +1,15 @@
 # Putting Venner SEO online
 
+## Quick way (Ubuntu/Debian VPS, e.g. Contabo)
+```bash
+ssh root@YOUR_SERVER_IP
+curl -fsSL https://raw.githubusercontent.com/rohitvariya/venner-seo/main/deploy/setup-server.sh -o setup.sh
+sudo bash setup.sh seo.vennerinfotech.com you@vennerinfotech.com
+# first run creates /var/www/venner-seo/.env: fill it in (nano), then run the same command again
+```
+The script installs everything, uses a local Redis, builds, starts with PM2, sets up nginx and free SSL,
+and is safe to re-run to update. The manual steps below do the same by hand.
+
 Works on any Linux server (Ubuntu 22.04/24.04 recommended) with 2 GB+ RAM. The database (Neon) and
 Redis (Upstash) stay where they are, so the server only runs the app.
 
