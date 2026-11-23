@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "reset-password": "tsx --env-file=.env scripts/reset-password.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.11.0",
