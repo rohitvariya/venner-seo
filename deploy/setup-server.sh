@@ -21,17 +21,30 @@ die() { printf "\n\033[1;31mXX  %s\033[0m\n" "$*"; exit 1; }
 . /etc/os-release
 case "$ID" in ubuntu|debian) ;; *) die "This script supports Ubuntu or Debian (found: $PRETTY_NAME)." ;; esac
 
+# Plesk servers: Plesk owns nginx/Apache and SSL. We only run the app on a local port and
+# Plesk's domain settings forward the subdomain to it (see the steps printed at the end).
+PLESK=0
+if [ -d /usr/local/psa ] || command -v plesk >/dev/null 2>&1; then PLESK=1; fi
+
 # Port 80/443 must be free for nginx (or already nginx).
-if ss -ltnp 2>/dev/null | grep -E ':(80|443)\s' | grep -qv nginx; then
+if [ "$PLESK" -eq 0 ] && ss -ltnp 2>/dev/null | grep -E ':(80|443)\s' | grep -qv nginx; then
   ss -ltnp | grep -E ':(80|443)\s' || true
   die "Something other than nginx (Apache, cPanel, Plesk…) is using port 80/443. Tell Claude what's running and it will adapt the setup."
 fi
 
-say "Installing system packages (nginx, Redis, certbot, git)…"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-apt-get install -y curl git nginx redis-server certbot python3-certbot-nginx ca-certificates build-essential
-systemctl enable --now redis-server nginx
+if [ "$PLESK" -eq 1 ]; then
+  say "Plesk detected: installing Redis and git only (Plesk keeps handling the web server and SSL)…"
+  apt-get install -y curl git redis-server ca-certificates build-essential
+  systemctl enable --now redis-server
+else
+  say "Installing system packages (nginx, Redis, certbot, git)…"
+  apt-get install -y curl git nginx redis-server certbot python3-certbot-nginx ca-certificates build-essential
+  systemctl enable --now redis-server nginx
+fi
+# Redis only for this server, never reachable from the internet.
+sed -i 's/^bind .*/bind 127.0.0.1/' /etc/redis/redis.conf && systemctl restart redis-server
 
 if ! command -v node >/dev/null || [ "$(node -p 'process.versions.node.split(".")[0]')" -lt 20 ]; then
   say "Installing Node.js 22…"
@@ -74,8 +87,9 @@ for k in DATABASE_URL SESSION_SECRET ENCRYPTION_KEY ANTHROPIC_API_KEY; do
 done
 chmod 600 .env
 
-# Pick a free port for the app (3000 unless taken by something else).
+# Pick a free port for the app (3000, or 3010 on Plesk, unless taken by something else).
 PORT=3000
+[ "$PLESK" -eq 1 ] && PORT=3010
 if [ -f .port ]; then PORT=$(cat .port); else
   while ss -ltn | grep -q ":$PORT\s"; do PORT=$((PORT+1)); done
   echo "$PORT" > .port
@@ -90,6 +104,37 @@ say "Starting the app and worker on port $PORT…"
 PORT=$PORT pm2 startOrReload deploy/ecosystem.config.cjs --update-env
 pm2 save
 pm2 startup systemd -u root --hp /root >/dev/null 2>&1 || true
+
+if [ "$PLESK" -eq 1 ]; then
+  pm2 status
+  say "App is running on http://127.0.0.1:$PORT. Now connect $DOMAIN in Plesk:"
+  cat <<STEPS
+  1. Websites & Domains → Add Subdomain (or Add Domain) → $DOMAIN
+  2. On $DOMAIN → SSL/TLS Certificates → Install free Let's Encrypt certificate (tick "Redirect from http to https")
+  3. On $DOMAIN → Apache & nginx Settings:
+       - UNTICK "Proxy mode"
+       - In "Additional nginx directives" paste:
+
+location ~ / {
+    proxy_pass http://127.0.0.1:$PORT;
+    proxy_http_version 1.1;
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 120s;
+    client_max_body_size 110m;
+}
+
+       - Click OK
+  4. Open https://$DOMAIN
+STEPS
+  echo "Logs: pm2 logs venner-seo-worker   |   pm2 logs venner-seo-web"
+  echo "Update later: sudo bash $APP_DIR/deploy/setup-server.sh $DOMAIN $EMAIL"
+  exit 0
+fi
 
 say "Configuring nginx for $DOMAIN…"
 sed -e "s/seo.vennerinfotech.com/$DOMAIN/" -e "s|127.0.0.1:3000|127.0.0.1:$PORT|" deploy/nginx.conf > /etc/nginx/sites-available/venner-seo
