@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { marked } from "marked";
-import { requireSite } from "@/lib/auth";
+import { requireSitePageForAgency } from "@/lib/auth";
 import { asc, eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import {
@@ -14,7 +14,7 @@ const STEPS = ["Website", "Services", "Competitors", "Contact", "Service areas",
 
 export default async function OnboardingPage({ params }: { params: Promise<{ siteId: string }> }) {
   const { siteId } = await params;
-  const { site } = await requireSite(siteId);
+  const { site } = await requireSitePageForAgency(siteId);
   const [services, competitors, areas] = await Promise.all([
     db.query.services.findMany({ where: eq(schema.services.siteId, siteId), orderBy: asc(schema.services.name) }),
     db.query.competitors.findMany({ where: eq(schema.competitors.siteId, siteId) }),

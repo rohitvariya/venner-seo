@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { and, desc, eq, isNotNull } from "drizzle-orm";
-import { requireSite } from "@/lib/auth";
+import { requireSitePageForAgency } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
 import { addAiQuestion, findAiQuestions, hideAiQuestion, runAiCheck, scoreSitePosts, trackCompetitor, writeForQuestion } from "@/app/actions";
 import { AutoRefresh, SubmitButton } from "@/components/ui";
@@ -16,7 +16,7 @@ function pct(n: number, d: number) {
 
 export default async function GrowPage({ params }: { params: Promise<{ siteId: string }> }) {
   const { siteId } = await params;
-  const { site } = await requireSite(siteId);
+  const { site } = await requireSitePageForAgency(siteId);
   const engines = enabledEngines();
   const [questions, checks, posts, ownArticles, tracked] = await Promise.all([
     db.query.aiQuestions.findMany({

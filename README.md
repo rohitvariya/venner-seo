@@ -22,6 +22,10 @@ AI SEO platform for local businesses and agencies. Add a website and it:
 15. **Testimonials:** pick your best Google reviews and show them on your website with one embed code.
 16. **Grow extras:** a 30-day action plan (tick tasks off), content ideas from Search Console, Maps searches, AI questions and keyword research, online conversations worth joining with a suggested reply, directories to list on (checks where you're already listed), upcoming holidays/events with one-click Google post drafts, and a monthly growth report.
 
+17. **Agency dashboard:** every client in one table (health score, clicks, calls, AI mentions, reviews, articles live this month) with problems first: change requests, unhappy reviews, failed jobs, critical site issues, missing connections.
+18. **Client logins:** invite a client by link (they set their own password). They see only their website: results, monthly report, articles to read and **approve or send back with changes**. No settings, connections or editing.
+19. **Client reports:** branded monthly report per client (your logo, colour and footer) with results vs the month before, work done, top searches, reviews, website health, map rank and what's next. Share as a no-login link or save as PDF.
+
 Nothing is published without approval. One login can manage many client websites (workspaces).
 
 ## Stack
@@ -88,15 +92,7 @@ Open http://localhost:3000/signup and create your account.
 
 ## Deploying
 
-Any Node 20+ host works: a VPS with PM2, Railway, Render, or Docker.
-
-```bash
-npm ci && npm run db:migrate && npm run build
-npm start          # web
-npm run worker     # worker (must run as a separate, always-on process)
-```
-
-The worker also runs a 5-minute "tick" that publishes scheduled posts and refreshes Search Console data once a day.
+Step-by-step guide for a Linux server with PM2 + nginx: [deploy/DEPLOY.md](deploy/DEPLOY.md).
 
 ## Cost per article (rough)
 

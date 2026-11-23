@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { CheckCircle2, Circle, ExternalLink } from "lucide-react";
 import { PrintButton } from "@/components/print-button";
-import { requireSite } from "@/lib/auth";
+import { requireSitePageForAgency } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
 import { createArticleFromTopic, draftEventPost, startGrow, toggleGrowDone } from "@/app/actions";
 import { AutoRefresh, SubmitButton } from "@/components/ui";
@@ -32,7 +32,7 @@ export default async function GrowSection({ params }: { params: Promise<{ siteId
   const { siteId, section } = await params;
   const meta = SECTIONS[section];
   if (!meta) notFound();
-  const { site } = await requireSite(siteId);
+  const { site } = await requireSitePageForAgency(siteId);
   const state = meta.kind ? await latestGrow<unknown>(siteId, meta.kind) : null;
   const generate = meta.kind ? startGrow.bind(null, siteId, meta.kind) : null;
 

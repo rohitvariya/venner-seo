@@ -21,7 +21,7 @@ export default async function ContentPage({ params, searchParams }: { params: Pr
   const { siteId } = await params;
   const sp = await searchParams;
   const tab = sp.tab ?? "calendar";
-  const { site } = await requireSite(siteId);
+  const { site, isClient } = await requireSite(siteId);
   const base = `/sites/${siteId}`;
   const A = schema.articles;
 
@@ -45,18 +45,20 @@ export default async function ContentPage({ params, searchParams }: { params: Pr
             {live.n} {live.n === 1 ? "piece" : "pieces"} went live this month. {waiting.n ? `${waiting.n} waiting for you.` : "Nothing is waiting for you."}
           </p>
           <p className="text-sm text-slate-500">
-            New articles {every} · {site.socialChannels.length} channels · {site.language.toUpperCase()} ·{" "}
-            <Link href={`${base}/settings`} className="font-medium text-brand-600">Change</Link>
+            New articles {every} · {site.socialChannels.length} channels · {site.language.toUpperCase()}
+            {!isClient && <> ·{" "}<Link href={`${base}/settings`} className="font-medium text-brand-600">Change</Link></>}
           </p>
         </div>
-        <div className="flex gap-2">
-          <Link href={`${base}/settings`} className="btn-secondary"><Settings2 size={15} /> Settings</Link>
-          <CreateMenu siteId={siteId} />
-        </div>
+        {!isClient && (
+          <div className="flex gap-2">
+            <Link href={`${base}/settings`} className="btn-secondary"><Settings2 size={15} /> Settings</Link>
+            <CreateMenu siteId={siteId} />
+          </div>
+        )}
       </div>
 
       <div className="flex gap-5 border-b border-slate-200 text-sm">
-        {TABS.map(([id, label]) => (
+        {TABS.filter(([id]) => !isClient || id !== "photos").map(([id, label]) => (
           <Link key={id} href={`?tab=${id}`}
             className={`-mb-px border-b-2 pb-2 ${tab === id ? "border-slate-900 font-medium" : "border-transparent text-slate-500 hover:text-slate-800"}`}>
             {label}
@@ -64,15 +66,15 @@ export default async function ContentPage({ params, searchParams }: { params: Pr
         ))}
       </div>
 
-      {tab === "calendar" && <CalendarTab siteId={siteId} sp={sp} />}
-      {tab === "articles" && <ArticlesTab siteId={siteId} sp={sp} />}
-      {(tab === "social" || tab === "google") && <PostsTab siteId={siteId} google={tab === "google"} platform={sp.platform} />}
-      {tab === "photos" && <PhotosTab siteId={siteId} usage={site.photoUsage} />}
+      {tab === "calendar" && <CalendarTab siteId={siteId} sp={sp} readOnly={isClient} />}
+      {tab === "articles" && <ArticlesTab siteId={siteId} sp={sp} readOnly={isClient} />}
+      {(tab === "social" || tab === "google") && <PostsTab siteId={siteId} google={tab === "google"} platform={sp.platform} readOnly={isClient} />}
+      {tab === "photos" && !isClient && <PhotosTab siteId={siteId} usage={site.photoUsage} />}
     </div>
   );
 }
 
-async function CalendarTab({ siteId, sp }: { siteId: string; sp: SP }) {
+async function CalendarTab({ siteId, sp, readOnly }: { siteId: string; sp: SP; readOnly: boolean }) {
   const view = sp.view === "week" ? "week" : "month";
   const anchor = sp.date && /^\d{4}-\d{2}-\d{2}$/.test(sp.date) ? sp.date : iso(new Date());
   const filter = sp.type ?? "all";
@@ -108,16 +110,16 @@ async function CalendarTab({ siteId, sp }: { siteId: string; sp: SP }) {
       id: x.id, kind: "article" as const, channel: null, title: x.title, status: x.status,
       at: (x.publishedAt ?? x.scheduledAt ?? x.plannedFor ?? x.createdAt).toISOString(),
       searches: x.keyword?.searchVolume ?? null, image: x.heroImageUrl, href: `${base}/content/${x.id}`,
-      locked: x.status === "PUBLISHED" || x.status === "PUBLISHING",
+      locked: readOnly || x.status === "PUBLISHED" || x.status === "PUBLISHING",
     })),
     ...posts.map((p) => ({
       id: p.id, kind: "post" as const, channel: p.channel, title: p.text.slice(0, 90), status: p.status,
       at: (p.publishedAt ?? p.scheduledAt ?? p.createdAt).toISOString(), searches: null, image: p.imageUrl,
       href: `${base}/content?tab=${p.channel === "google" ? "google" : "social"}`,
-      locked: p.status === "PUBLISHED" || p.status === "PUBLISHING",
+      locked: readOnly || p.status === "PUBLISHED" || p.status === "PUBLISHING",
     })),
   ];
-  return <Calendar siteId={siteId} items={items} view={view} anchor={anchor} filter={filter} />;
+  return <Calendar siteId={siteId} items={items} view={view} anchor={anchor} filter={filter} readOnly={readOnly} />;
 }
 
 const STATUS_FILTERS: [string, string, ArticleStatus[] | null][] = [
@@ -129,7 +131,7 @@ const STATUS_FILTERS: [string, string, ArticleStatus[] | null][] = [
   ["failed", "Failed", ["FAILED"]],
 ];
 
-async function ArticlesTab({ siteId, sp }: { siteId: string; sp: SP }) {
+async function ArticlesTab({ siteId, sp, readOnly }: { siteId: string; sp: SP; readOnly: boolean }) {
   const A = schema.articles;
   const st = STATUS_FILTERS.find(([id]) => id === (sp.status ?? "all")) ?? STATUS_FILTERS[0];
   const list = await db.query.articles.findMany({
@@ -151,7 +153,7 @@ async function ArticlesTab({ siteId, sp }: { siteId: string; sp: SP }) {
           <input type="hidden" name="status" value={st[0]} />
           <input name="q" defaultValue={sp.q} placeholder="Search articles" className="input w-56 py-1.5" />
         </form>
-        <form action={planMore.bind(null, siteId)}><SubmitButton className="btn-secondary py-1.5" pending="Planning…">+ Plan next month</SubmitButton></form>
+        {!readOnly && <form action={planMore.bind(null, siteId)}><SubmitButton className="btn-secondary py-1.5" pending="Planning…">+ Plan next month</SubmitButton></form>}
       </div>
       <p className="text-sm text-slate-500">{list.length} articles</p>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -188,7 +190,7 @@ async function ArticlesTab({ siteId, sp }: { siteId: string; sp: SP }) {
   );
 }
 
-async function PostsTab({ siteId, google, platform }: { siteId: string; google: boolean; platform?: string }) {
+async function PostsTab({ siteId, google, platform, readOnly }: { siteId: string; google: boolean; platform?: string; readOnly: boolean }) {
   const P = schema.socialPosts;
   const channelFilter = google
     ? eq(P.channel, "google")
@@ -211,17 +213,19 @@ async function PostsTab({ siteId, google, platform }: { siteId: string; google: 
             {p === "all" ? "All platforms" : p === "x" ? "X" : p}
           </Link>
         ))}
-        {google && !googleConnected && (
+        {google && !googleConnected && !readOnly && (
           <span className="text-sm text-amber-700">
             Connect Google Business Profile in <Link href={`/sites/${siteId}/integrations`} className="underline">Connections</Link> to post automatically.
           </span>
         )}
-        <form action={generateSocialPosts.bind(null, siteId)} className="ml-auto">
-          <SubmitButton pending="Writing…">Write the next 2 weeks</SubmitButton>
-        </form>
+        {!readOnly && (
+          <form action={generateSocialPosts.bind(null, siteId)} className="ml-auto">
+            <SubmitButton pending="Writing…">Write the next 2 weeks</SubmitButton>
+          </form>
+        )}
       </div>
       {list.length === 0 ? (
-        <p className="card text-sm text-slate-500">No posts yet. Click “Write the next 2 weeks”, or use Create.</p>
+        <p className="card text-sm text-slate-500">{readOnly ? "No posts yet." : "No posts yet. Click “Write the next 2 weeks”, or use Create."}</p>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {list.map((p) => (
@@ -229,7 +233,15 @@ async function PostsTab({ siteId, google, platform }: { siteId: string; google: 
               <div className="text-xs text-slate-500">
                 {(p.publishedAt ?? p.scheduledAt)?.toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
               </div>
-              <PostCard siteId={siteId} post={p} googleConnected={googleConnected} />
+              {readOnly ? (
+                <div className="card space-y-2 text-sm">
+                  <div className="flex items-center justify-between text-xs"><span className="font-medium capitalize">{p.channel === "x" ? "X" : p.channel}</span><span className="text-slate-500">{p.status === "PUBLISHED" ? "Posted" : p.status === "SCHEDULED" ? "Scheduled" : "Draft"}</span></div>
+                  <p className="whitespace-pre-line text-slate-700">{p.text}</p>
+                  {p.externalUrl && <a href={p.externalUrl} target="_blank" rel="noreferrer" className="text-xs text-brand-600">View on Google ↗</a>}
+                </div>
+              ) : (
+                <PostCard siteId={siteId} post={p} googleConnected={googleConnected} />
+              )}
             </div>
           ))}
         </div>

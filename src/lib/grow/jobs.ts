@@ -1,6 +1,6 @@
 // Grow: 30-day plan, monthly growth report, conversations to join, directories to list on,
 // and upcoming events/holidays to post about. Each is stored as a site_insights row.
-import { and, desc, eq, gte } from "drizzle-orm";
+import { and, desc, eq, gte, lt } from "drizzle-orm";
 import { db, schema } from "../db";
 import { enqueue } from "../queue";
 import { researchStructured, structured } from "../ai";
@@ -58,22 +58,22 @@ function topHosts(urls: string[]) {
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
 const sum = <T,>(rows: T[], f: (r: T) => number) => rows.reduce((s, r) => s + f(r), 0);
 
-/** Numbers for the last 30 days and the 30 before, across every channel we track. */
-export async function snapshot(siteId: string) {
-  const now = new Date();
-  const d30 = new Date(now.getTime() - 30 * 86400_000);
-  const d60 = new Date(now.getTime() - 60 * 86400_000);
+/** Numbers for a period (default: the last 30 days) and the same length before it, across every channel we track. */
+export async function snapshot(siteId: string, range?: { from: Date; to: Date }) {
+  const now = range?.to ?? new Date();
+  const d30 = range?.from ?? new Date(now.getTime() - 30 * 86400_000);
+  const d60 = new Date(d30.getTime() - (now.getTime() - d30.getTime()));
   const [gsc, gbp, reviews, published, posts, checks, audits, grid] = await Promise.all([
-    db.query.gscDailyMetrics.findMany({ where: and(eq(schema.gscDailyMetrics.siteId, siteId), gte(schema.gscDailyMetrics.date, ymd(d60))) }),
-    db.query.gbpDailyMetrics.findMany({ where: and(eq(schema.gbpDailyMetrics.siteId, siteId), gte(schema.gbpDailyMetrics.date, ymd(d60))) }),
+    db.query.gscDailyMetrics.findMany({ where: and(eq(schema.gscDailyMetrics.siteId, siteId), gte(schema.gscDailyMetrics.date, ymd(d60)), lt(schema.gscDailyMetrics.date, ymd(now))) }),
+    db.query.gbpDailyMetrics.findMany({ where: and(eq(schema.gbpDailyMetrics.siteId, siteId), gte(schema.gbpDailyMetrics.date, ymd(d60)), lt(schema.gbpDailyMetrics.date, ymd(now))) }),
     db.query.reviews.findMany({ where: eq(schema.reviews.siteId, siteId), columns: { rating: true, reviewedAt: true, replyText: true } }),
     db.query.articles.findMany({ where: and(eq(schema.articles.siteId, siteId), eq(schema.articles.status, "PUBLISHED")), columns: { publishedAt: true, title: true } }),
     db.query.socialPosts.findMany({ where: and(eq(schema.socialPosts.siteId, siteId), eq(schema.socialPosts.status, "PUBLISHED")), columns: { publishedAt: true } }),
-    db.query.aiChecks.findMany({ where: and(eq(schema.aiChecks.siteId, siteId), gte(schema.aiChecks.checkedAt, d60)), columns: { mentioned: true, checkedAt: true, citations: true } }),
-    db.query.siteAudits.findMany({ where: and(eq(schema.siteAudits.siteId, siteId), eq(schema.siteAudits.status, "DONE")), orderBy: desc(schema.siteAudits.createdAt), limit: 8 }),
-    db.query.geoGridScans.findMany({ where: and(eq(schema.geoGridScans.siteId, siteId), eq(schema.geoGridScans.status, "DONE")), orderBy: desc(schema.geoGridScans.createdAt), limit: 8 }),
+    db.query.aiChecks.findMany({ where: and(eq(schema.aiChecks.siteId, siteId), gte(schema.aiChecks.checkedAt, d60), lt(schema.aiChecks.checkedAt, now)), columns: { mentioned: true, checkedAt: true, citations: true } }),
+    db.query.siteAudits.findMany({ where: and(eq(schema.siteAudits.siteId, siteId), eq(schema.siteAudits.status, "DONE"), lt(schema.siteAudits.createdAt, now)), orderBy: desc(schema.siteAudits.createdAt), limit: 8 }),
+    db.query.geoGridScans.findMany({ where: and(eq(schema.geoGridScans.siteId, siteId), eq(schema.geoGridScans.status, "DONE"), lt(schema.geoGridScans.createdAt, now)), orderBy: desc(schema.geoGridScans.createdAt), limit: 8 }),
   ]);
-  const inNow = (d: Date | string | null | undefined) => !!d && new Date(d) >= d30;
+  const inNow = (d: Date | string | null | undefined) => !!d && new Date(d) >= d30 && new Date(d) < now;
   const inPrev = (d: Date | string | null | undefined) => !!d && new Date(d) >= d60 && new Date(d) < d30;
   const gscNow = gsc.filter((r) => inNow(r.date));
   const gscPrev = gsc.filter((r) => inPrev(r.date));

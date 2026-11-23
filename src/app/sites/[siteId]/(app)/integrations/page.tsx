@@ -1,4 +1,4 @@
-import { requireSite } from "@/lib/auth";
+import { requireSitePageForAgency } from "@/lib/auth";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { chooseGbpLocation, disconnect, syncGscNow } from "@/app/actions";
@@ -12,7 +12,7 @@ export default async function IntegrationsPage({ params, searchParams }: {
 }) {
   const { siteId } = await params;
   const { gsc: gscResult, gbp: gbpResult } = await searchParams;
-  const { site } = await requireSite(siteId);
+  const { site } = await requireSitePageForAgency(siteId);
   const integrations = await db.query.integrations.findMany({ where: eq(schema.integrations.siteId, siteId) });
   const get = (t: string) => integrations.find((i) => i.type === t);
   const wp = get("WORDPRESS");

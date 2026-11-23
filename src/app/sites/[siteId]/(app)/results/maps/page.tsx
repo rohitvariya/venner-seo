@@ -24,7 +24,7 @@ function Change({ now, before }: { now: number; before: number }) {
 export default async function MapsPage({ params, searchParams }: { params: Promise<{ siteId: string }>; searchParams: Promise<{ scan?: string; metric?: string }> }) {
   const { siteId } = await params;
   const sp = await searchParams;
-  const { site } = await requireSite(siteId);
+  const { site, isClient } = await requireSite(siteId);
   const [gbp, daily, kwRow, scans, keywords] = await Promise.all([
     db.query.integrations.findFirst({ where: and(eq(schema.integrations.siteId, siteId), eq(schema.integrations.type, "GBP")) }),
     db.query.gbpDailyMetrics.findMany({ where: eq(schema.gbpDailyMetrics.siteId, siteId), orderBy: asc(schema.gbpDailyMetrics.date) }),
@@ -61,7 +61,7 @@ export default async function MapsPage({ params, searchParams }: { params: Promi
           <h1 className="text-2xl font-semibold">Google Maps</h1>
           <p className="text-sm text-slate-500">How people find and contact you from your Google Business Profile, and where you rank on the map.</p>
         </div>
-        {gbp && (
+        {gbp && !isClient && (
           <form action={syncMapsNow.bind(null, siteId)}>
             <SubmitButton className="btn-secondary" pending="Queued">Refresh numbers</SubmitButton>
           </form>
@@ -74,7 +74,7 @@ export default async function MapsPage({ params, searchParams }: { params: Promi
             <p className="font-medium">Connect Google Business Profile</p>
             <p className="text-sm text-slate-500">See your profile views, calls, direction requests and the searches people used to find you.</p>
           </div>
-          <Link href={`/sites/${siteId}/integrations`} className="btn-primary">Connect</Link>
+          {!isClient && <Link href={`/sites/${siteId}/integrations`} className="btn-primary">Connect</Link>}
         </div>
       ) : daily.length === 0 ? (
         <div className="card text-sm text-slate-500">No numbers yet. They arrive within a few minutes of connecting (Google&apos;s figures run 2-3 days behind).</div>
@@ -117,7 +117,7 @@ export default async function MapsPage({ params, searchParams }: { params: Promi
             Where you appear in Google Maps results for a search, checked from points all around your business. Green means top 3, the spots that get most calls.
           </p>
         </div>
-        {!dataForSeoEnabled() ? (
+        {isClient ? null : !dataForSeoEnabled() ? (
           <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
             Map rankings use DataForSEO (each point is one paid lookup, a few rupees per 25-point check). Add DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD to your .env and restart to turn this on.
           </p>

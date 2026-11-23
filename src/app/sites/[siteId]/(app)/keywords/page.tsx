@@ -1,4 +1,4 @@
-import { requireSite } from "@/lib/auth";
+import { requireSitePageForAgency } from "@/lib/auth";
 import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { rejectKeyword, writeFromKeyword } from "@/app/actions";
@@ -9,7 +9,7 @@ const STATUS_LABEL = { SUGGESTED: "Idea", PLANNED: "Planned", USED: "Written", R
 
 export default async function KeywordsPage({ params }: { params: Promise<{ siteId: string }> }) {
   const { siteId } = await params;
-  await requireSite(siteId);
+  await requireSitePageForAgency(siteId);
   const K = schema.keywords;
   const keywords = await db.query.keywords.findMany({
     where: and(eq(K.siteId, siteId), ne(K.status, "REJECTED")),

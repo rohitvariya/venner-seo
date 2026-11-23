@@ -55,7 +55,10 @@ export async function getUserId(): Promise<string | null> {
   }
 }
 
-/** Returns the signed-in user with their first workspace, or redirects to /login. */
+/**
+ * Returns the signed-in user with their first workspace, or redirects to /login.
+ * CLIENT logins also get the list of sites they're allowed to see.
+ */
 export async function requireUser() {
   const userId = await getUserId();
   if (!userId) redirect("/login");
@@ -64,15 +67,47 @@ export async function requireUser() {
     with: { memberships: { with: { workspace: true }, orderBy: schema.memberships.createdAt } },
   });
   if (!user || user.memberships.length === 0) redirect("/login");
-  return { user, workspace: user.memberships[0].workspace };
+  const membership = user.memberships[0];
+  const isClient = membership.role === "CLIENT";
+  const clientSiteIds = isClient
+    ? (await db.query.clientSiteAccess.findMany({ where: eq(schema.clientSiteAccess.userId, user.id), columns: { siteId: true } })).map((r) => r.siteId)
+    : null;
+  return { user, workspace: membership.workspace, role: membership.role, isClient, clientSiteIds };
 }
 
-/** Loads a site and checks it belongs to the user's workspace. */
+/** Agency staff only (not client logins): adding sites, branding, invites. */
+export async function requireAgency() {
+  const ctx = await requireUser();
+  if (ctx.isClient) redirect("/sites");
+  return ctx;
+}
+
+/** Loads a site the user may see: any site in the workspace for staff, only assigned sites for clients. */
 export async function requireSite(siteId: string) {
-  const { user, workspace } = await requireUser();
+  const ctx = await requireUser();
   const site = await db.query.sites.findFirst({
-    where: and(eq(schema.sites.id, siteId), eq(schema.sites.workspaceId, workspace.id)),
+    where: and(eq(schema.sites.id, siteId), eq(schema.sites.workspaceId, ctx.workspace.id)),
   });
-  if (!site) redirect("/sites");
-  return { user, workspace, site };
+  if (!site || (ctx.isClient && !ctx.clientSiteIds!.includes(site.id))) redirect("/sites");
+  return { ...ctx, site };
+}
+
+export class ClientNotAllowedError extends Error {
+  constructor() {
+    super("Your agency manages this. Ask them if you'd like it changed.");
+  }
+}
+
+/** Like requireSite, but for changes only the agency may make. Client logins get an error. */
+export async function requireSiteManage(siteId: string) {
+  const ctx = await requireSite(siteId);
+  if (ctx.isClient) throw new ClientNotAllowedError();
+  return ctx;
+}
+
+/** For pages only the agency should see: client logins are sent to the site's home. */
+export async function requireSitePageForAgency(siteId: string) {
+  const ctx = await requireSite(siteId);
+  if (ctx.isClient) redirect(`/sites/${siteId}`);
+  return ctx;
 }

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { and, asc, desc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { requireSite } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
 import { AppShell } from "@/components/shell/app-shell";
@@ -7,12 +7,12 @@ import { computeTodos } from "@/lib/todos";
 
 export default async function SiteLayout({ children, params }: { children: React.ReactNode; params: Promise<{ siteId: string }> }) {
   const { siteId } = await params;
-  const { site, workspace, user } = await requireSite(siteId);
+  const { site, workspace, user, isClient, clientSiteIds } = await requireSite(siteId);
   if (site.onboardingStep !== "DONE") redirect(`/sites/${siteId}/onboarding`);
 
   const [sites, [{ toReview }], [{ unreplied }], todos, recentArticles] = await Promise.all([
     db.query.sites.findMany({
-      where: eq(schema.sites.workspaceId, workspace.id),
+      where: isClient ? inArray(schema.sites.id, clientSiteIds!.length ? clientSiteIds! : ["-"]) : eq(schema.sites.workspaceId, workspace.id),
       columns: { id: true, domain: true, businessName: true },
       orderBy: asc(schema.sites.domain),
     }),
@@ -35,7 +35,9 @@ export default async function SiteLayout({ children, params }: { children: React
       site={{ id: site.id, domain: site.domain, businessName: site.businessName }}
       sites={sites}
       user={{ name: user.name, email: user.email }}
-      counts={{ todo: todos.filter((t) => t.type !== "idea").length, review: toReview, reviews: unreplied }}
+      counts={isClient ? { todo: toReview, review: toReview, reviews: 0 } : { todo: todos.filter((t) => t.type !== "idea").length, review: toReview, reviews: unreplied }}
+      isClient={isClient}
+      brand={{ name: workspace.brandName ?? workspace.name, logoUrl: workspace.logoUrl }}
       searchItems={recentArticles.map((a) => ({ label: a.title, href: `/sites/${siteId}/content/${a.id}`, kind: "Article" }))}
     >
       {children}

@@ -13,14 +13,15 @@ export default async function ReviewsPage({ params, searchParams }: {
   searchParams: Promise<{ tab?: string }>;
 }) {
   const { siteId } = await params;
-  const { tab = "todo" } = await searchParams;
-  const { site } = await requireSite(siteId);
+  const { tab: tabParam } = await searchParams;
+  const { site, isClient } = await requireSite(siteId);
   const R = schema.reviews;
   const [all, gbp] = await Promise.all([
     db.query.reviews.findMany({ where: eq(R.siteId, siteId), orderBy: desc(R.reviewedAt), limit: 300 }),
     db.query.integrations.findFirst({ where: and(eq(schema.integrations.siteId, siteId), eq(schema.integrations.type, "GBP")) }),
   ]);
   const todo = all.filter((r) => !r.replyText);
+  const tab = isClient ? "all" : (tabParam ?? "todo");
   const list = tab === "todo" ? todo : all;
   const candidates = all.filter((r) => r.rating >= 4 && r.comment);
   const picked = all.filter((r) => r.isTestimonial);
@@ -38,7 +39,7 @@ export default async function ReviewsPage({ params, searchParams }: {
           <h1 className="text-2xl font-semibold">Reviews</h1>
           <p className="text-sm text-slate-500">Google reviews with a reply drafted for each one. Edit and post in one click.</p>
         </div>
-        {gbp?.config?.location && (
+        {gbp?.config?.location && !isClient && (
           <form action={syncReviewsNow.bind(null, siteId)}><SubmitButton className="btn-secondary" pending="Queued">Check for new reviews</SubmitButton></form>
         )}
       </div>
@@ -47,7 +48,7 @@ export default async function ReviewsPage({ params, searchParams }: {
         <div className="card text-center">
           <h2 className="font-semibold">Reply to reviews in one place</h2>
           <p className="mt-1 text-sm text-slate-500">Connect your Google Business Profile and we&apos;ll draft a reply to every new review for you to send in one click.</p>
-          <Link href={`/sites/${siteId}/integrations`} className="btn-primary mt-4">Connect Google Business Profile</Link>
+          {!isClient && <Link href={`/sites/${siteId}/integrations`} className="btn-primary mt-4">Connect Google Business Profile</Link>}
         </div>
       ) : (
         <>
@@ -57,7 +58,7 @@ export default async function ReviewsPage({ params, searchParams }: {
             <div className="card"><div className="text-xs text-slate-500">Reply rate</div><div className="mt-1 text-2xl font-semibold">{all.length ? Math.round((replied / all.length) * 100) : 0}%</div></div>
           </div>
           <div className="flex gap-2">
-            {[["todo", `Needs reply (${todo.length})`], ["all", "All reviews"], ["testimonials", `Testimonials (${picked.length})`]].map(([id, label]) => (
+            {(isClient ? [] : [["todo", `Needs reply (${todo.length})`], ["all", "All reviews"], ["testimonials", `Testimonials (${picked.length})`]]).map(([id, label]) => (
               <Link key={id} href={`?tab=${id}`} className={`rounded-full px-3 py-1 text-sm ${tab === id ? "bg-brand-500 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}>{label}</Link>
             ))}
           </div>
@@ -118,7 +119,7 @@ export default async function ReviewsPage({ params, searchParams }: {
                 ) : (
                   <>
                     {r.error && <p className="text-xs text-red-600">{r.error}</p>}
-                    <ReviewReply siteId={siteId} reviewId={r.id} draft={r.draftReply ?? ""} />
+                    {isClient ? <p className="text-xs text-slate-400">Your agency is replying to this one.</p> : <ReviewReply siteId={siteId} reviewId={r.id} draft={r.draftReply ?? ""} />}
                   </>
                 )}
               </div>

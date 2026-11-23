@@ -10,7 +10,7 @@ const id = () => text("id").primaryKey().$defaultFn(createId);
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const updatedAt = () => timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date());
 
-export const roleEnum = pgEnum("role", ["OWNER", "EDITOR", "VIEWER"]);
+export const roleEnum = pgEnum("role", ["OWNER", "EDITOR", "VIEWER", "CLIENT"]);
 export const onboardingStepEnum = pgEnum("onboarding_step", [
   "WEBSITE", "SERVICES", "COMPETITORS", "CONTACT", "AREAS", "FIRST_CONTENT", "DONE",
 ]);
@@ -59,8 +59,42 @@ export const users = pgTable("users", {
 export const workspaces = pgTable("workspaces", {
   id: id(),
   name: text("name").notNull(),
+  // Branding on client reports and the client login screens.
+  brandName: text("brand_name"),
+  logoUrl: text("logo_url"),
+  brandColor: text("brand_color"),
+  reportFooter: text("report_footer"), // e.g. "Questions? Call Rohit on +91 …"
   createdAt: createdAt(),
 });
+
+/** Which sites a CLIENT login can see (agency staff see every site in the workspace). */
+export const clientSiteAccess = pgTable(
+  "client_site_access",
+  {
+    id: id(),
+    userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    siteId: text("site_id").notNull().references(() => sites.id, { onDelete: "cascade" }),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("client_site_access_user_site").on(t.userId, t.siteId)],
+);
+
+/** Invite links: the agency sends one to a client, who opens it and sets their own password. */
+export const invites = pgTable(
+  "invites",
+  {
+    id: id(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    siteId: text("site_id").notNull().references(() => sites.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    name: text("name"),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("invites_token").on(t.tokenHash)],
+);
 
 export const memberships = pgTable(
   "memberships",
@@ -107,6 +141,8 @@ export const sites = pgTable(
     lng: doublePrecision("lng"),
     // Public id for the testimonials widget embedded on the business's website.
     widgetKey: text("widget_key"),
+    // Secret for the shareable client report link (/r/{token}); regenerate to revoke.
+    reportToken: text("report_token"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -183,6 +219,7 @@ export const articles = pgTable(
     seoScore: integer("seo_score"),
     seoChecks: jsonb("seo_checks").$type<{ id: string; label: string; passed: boolean; weight: number }[]>(),
     factIssues: jsonb("fact_issues").$type<FactIssue[]>(),
+    clientNote: text("client_note"), // change request from the client login
     heroImageUrl: text("hero_image_url"),
     status: articleStatusEnum("status").notNull().default("IDEA"),
     plannedFor: timestamp("planned_for", { withTimezone: true }),

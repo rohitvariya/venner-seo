@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/lib/db";
-import { createSession, destroySession, hashPassword, requireSite, requireUser, verifyPassword } from "@/lib/auth";
+import { createSession, destroySession, hashPassword, requireAgency, requireSite, requireSiteManage, verifyPassword } from "@/lib/auth";
 import { enqueue } from "@/lib/queue";
 import { normalizeDomain } from "@/lib/crawl";
 import { encryptJson } from "@/lib/crypto";
@@ -67,7 +67,7 @@ export async function logout() {
 // ---------- Sites & onboarding ----------
 
 export async function addSite(_: FormState, form: FormData): Promise<FormState> {
-  const { workspace } = await requireUser();
+  const { workspace } = await requireAgency();
   const domain = normalizeDomain(String(form.get("domain") ?? ""));
   const phone = String(form.get("phone") ?? "").trim();
   if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain)) return { error: "Enter a website like yourbusiness.com" };
@@ -94,34 +94,34 @@ export async function addSite(_: FormState, form: FormData): Promise<FormState> 
 }
 
 export async function rescanSite(siteId: string) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   await db.update(sites).set({ scanStatus: "QUEUED", scanError: null }).where(eq(sites.id, siteId));
   await enqueue("scan-site", { siteId });
   revalidatePath(`/sites/${siteId}`, "layout");
 }
 
 export async function setStep(siteId: string, step: Exclude<OnboardingStep, "WEBSITE" | "DONE">) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   await db.update(sites).set({ onboardingStep: step }).where(eq(sites.id, siteId));
   revalidatePath(`/sites/${siteId}/onboarding`);
 }
 
 export async function toggleService(siteId: string, serviceId: string) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   const s = await db.query.services.findFirst({ where: and(eq(services.id, serviceId), eq(services.siteId, siteId)) });
   if (s) await db.update(services).set({ selected: !s.selected }).where(eq(services.id, s.id));
   revalidatePath(`/sites/${siteId}`, "layout");
 }
 
 export async function addService(siteId: string, form: FormData) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   const name = String(form.get("name") ?? "").trim();
   if (name) await db.insert(services).values({ siteId, name });
   revalidatePath(`/sites/${siteId}`, "layout");
 }
 
 export async function addCompetitor(siteId: string, form: FormData) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   const name = String(form.get("name") ?? "").trim();
   const domain = normalizeDomain(String(form.get("domain") ?? ""));
   if (name && domain) await db.insert(competitors).values({ siteId, name, domain });
@@ -129,13 +129,13 @@ export async function addCompetitor(siteId: string, form: FormData) {
 }
 
 export async function removeCompetitor(siteId: string, id: string) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   await db.delete(competitors).where(and(eq(competitors.id, id), eq(competitors.siteId, siteId)));
   revalidatePath(`/sites/${siteId}`, "layout");
 }
 
 export async function saveContact(siteId: string, form: FormData) {
-  const { site } = await requireSite(siteId);
+  const { site } = await requireSiteManage(siteId);
   const get = (k: string) => String(form.get(k) ?? "").trim() || null;
   await db
     .update(sites)
@@ -153,40 +153,40 @@ export async function saveContact(siteId: string, form: FormData) {
 }
 
 export async function addArea(siteId: string, form: FormData) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   const name = String(form.get("name") ?? "").trim();
   if (name) await db.insert(serviceAreas).values({ siteId, name });
   revalidatePath(`/sites/${siteId}`, "layout");
 }
 
 export async function removeArea(siteId: string, id: string) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   await db.delete(serviceAreas).where(and(eq(serviceAreas.id, id), eq(serviceAreas.siteId, siteId)));
   revalidatePath(`/sites/${siteId}`, "layout");
 }
 
 /** Final onboarding step: builds the keyword plan and starts writing the first articles. */
 export async function finishOnboarding(siteId: string) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   await db.update(sites).set({ onboardingStep: "FIRST_CONTENT" }).where(eq(sites.id, siteId));
   await enqueue("plan-keywords", { siteId });
   redirect(`/sites/${siteId}/onboarding`);
 }
 
 export async function completeOnboarding(siteId: string) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   await db.update(sites).set({ onboardingStep: "DONE" }).where(eq(sites.id, siteId));
   redirect(`/sites/${siteId}`);
 }
 
 export async function planMore(siteId: string) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   await enqueue("plan-keywords", { siteId });
   revalidatePath(`/sites/${siteId}/content`);
 }
 
 export async function saveSettings(siteId: string, form: FormData) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   const n = Math.min(60, Math.max(1, Number(form.get("articlesPerMonth") ?? 8) || 8));
   await db
     .update(sites)
@@ -200,14 +200,14 @@ export async function saveSettings(siteId: string, form: FormData) {
 
 // ---------- Articles ----------
 
-async function requireArticle(siteId: string, articleId: string) {
-  const { site } = await requireSite(siteId);
+async function requireArticle(siteId: string, articleId: string, allowClient = false) {
+  const { site, isClient } = allowClient ? await requireSite(siteId) : await requireSiteManage(siteId);
   const article = await db.query.articles.findFirst({
     where: and(eq(articles.id, articleId), eq(articles.siteId, siteId)),
     with: { keyword: true },
   });
   if (!article) redirect(`/sites/${siteId}/content`);
-  return { site, article };
+  return { site, article, isClient };
 }
 
 export async function saveArticle(siteId: string, articleId: string, _: FormState, form: FormData): Promise<FormState> {
@@ -232,9 +232,11 @@ export async function saveArticle(siteId: string, articleId: string, _: FormStat
 }
 
 export async function approveArticle(siteId: string, articleId: string, form: FormData) {
-  const { article } = await requireArticle(siteId, articleId);
+  const { article, isClient } = await requireArticle(siteId, articleId, true);
   if (!article.contentMd) return;
-  const when = String(form.get("when") ?? "now");
+  let when = String(form.get("when") ?? "now");
+  if (isClient && when === "draft") when = "now";
+  await db.update(articles).set({ clientNote: null }).where(eq(articles.id, articleId));
   const date = String(form.get("scheduledAt") ?? "");
   if (when === "schedule" && date) {
     await db.update(articles).set({ status: "SCHEDULED", scheduledAt: new Date(date) }).where(eq(articles.id, articleId));
@@ -245,6 +247,23 @@ export async function approveArticle(siteId: string, articleId: string, form: Fo
     await db.update(articles).set({ status: "PUBLISHING", scheduledAt: new Date() }).where(eq(articles.id, articleId));
     await enqueue("publish-article", { articleId });
   }
+  revalidatePath(`/sites/${siteId}`, "layout");
+}
+
+/** A client login asks for changes instead of approving; the agency sees the note on the article and in To-do. */
+export async function requestArticleChanges(siteId: string, articleId: string, _: FormState, form: FormData): Promise<FormState> {
+  const { article } = await requireArticle(siteId, articleId, true);
+  const note = String(form.get("note") ?? "").trim();
+  if (note.length < 3) return { error: "Tell your agency what to change." };
+  if (article.status === "PUBLISHED" || article.status === "PUBLISHING") return { error: "This article is already live. Message your agency to change it." };
+  await db.update(articles).set({ clientNote: note.slice(0, 2000), status: "REVIEW", scheduledAt: null }).where(eq(articles.id, articleId));
+  revalidatePath(`/sites/${siteId}`, "layout");
+  return { ok: "Sent to your agency." };
+}
+
+export async function clearClientNote(siteId: string, articleId: string) {
+  await requireArticle(siteId, articleId);
+  await db.update(articles).set({ clientNote: null }).where(eq(articles.id, articleId));
   revalidatePath(`/sites/${siteId}`, "layout");
 }
 
@@ -269,7 +288,7 @@ export async function deleteArticle(siteId: string, articleId: string) {
 }
 
 export async function writeFromKeyword(siteId: string, keywordId: string) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   const k = await db.query.keywords.findFirst({ where: and(eq(keywords.id, keywordId), eq(keywords.siteId, siteId)) });
   if (!k) return;
   const [article] = await db
@@ -282,7 +301,7 @@ export async function writeFromKeyword(siteId: string, keywordId: string) {
 }
 
 export async function rejectKeyword(siteId: string, keywordId: string) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   await db.update(keywords).set({ status: "REJECTED" }).where(and(eq(keywords.id, keywordId), eq(keywords.siteId, siteId)));
   revalidatePath(`/sites/${siteId}/keywords`);
 }
@@ -298,7 +317,7 @@ async function upsertIntegration(siteId: string, type: IntegrationType, secret: 
 }
 
 export async function connectWordPress(siteId: string, _: FormState, form: FormData): Promise<FormState> {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   const secret = {
     siteUrl: String(form.get("siteUrl") ?? "").trim().replace(/\/$/, ""),
     username: String(form.get("username") ?? "").trim(),
@@ -318,7 +337,7 @@ export async function connectWordPress(siteId: string, _: FormState, form: FormD
 }
 
 export async function connectShopify(siteId: string, _: FormState, form: FormData): Promise<FormState> {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   const secret = {
     shopDomain: String(form.get("shopDomain") ?? "").trim().replace(/^https?:\/\//, "").replace(/\/$/, ""),
     accessToken: String(form.get("accessToken") ?? "").trim(),
@@ -338,13 +357,13 @@ export async function connectShopify(siteId: string, _: FormState, form: FormDat
 }
 
 export async function disconnect(siteId: string, type: IntegrationType) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   await db.delete(integrations).where(and(eq(integrations.siteId, siteId), eq(integrations.type, type)));
   revalidatePath(`/sites/${siteId}/integrations`);
 }
 
 export async function syncGscNow(siteId: string) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   await enqueue("sync-gsc", { siteId });
   revalidatePath(`/sites/${siteId}`);
 }
@@ -359,7 +378,7 @@ const lines = (v: FormDataEntryValue | null) =>
 
 /** Saves whichever Blueprint fields are present in the form (each tab posts its own subset). */
 export async function saveBlueprint(siteId: string, _: FormState, form: FormData): Promise<FormState> {
-  const { site } = await requireSite(siteId);
+  const { site } = await requireSiteManage(siteId);
   const bp = { ...site.blueprint };
   const has = (k: string) => form.has(k);
   if (has("idealCustomer")) bp.idealCustomer = String(form.get("idealCustomer")).trim();
@@ -397,7 +416,7 @@ export type CustomState = { error?: string; ok?: string; apiKey?: string; webhoo
  * first connect or when "regenerate" is ticked; they're returned once and only their hash is stored.
  */
 export async function saveCustomSite(siteId: string, _: CustomState, form: FormData): Promise<CustomState> {
-  const { site } = await requireSite(siteId);
+  const { site } = await requireSiteManage(siteId);
   const urlPattern = String(form.get("urlPattern") ?? "").trim();
   const webhookUrl = String(form.get("webhookUrl") ?? "").trim();
   const regenerate = form.get("regenerate") === "on";
@@ -432,21 +451,21 @@ export async function saveCustomSite(siteId: string, _: CustomState, form: FormD
 // ---------- Grow: AI visibility ----------
 
 export async function findAiQuestions(siteId: string) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   await db.update(sites).set({ aiStatus: "QUEUED" }).where(eq(sites.id, siteId));
   await enqueue("find-questions", { siteId });
   revalidatePath(`/sites/${siteId}/grow`);
 }
 
 export async function runAiCheck(siteId: string) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   await db.update(sites).set({ aiStatus: "QUEUED" }).where(eq(sites.id, siteId));
   await enqueue("check-visibility", { siteId });
   revalidatePath(`/sites/${siteId}/grow`);
 }
 
 export async function addAiQuestion(siteId: string, form: FormData) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   const question = String(form.get("question") ?? "").trim();
   if (question.length > 8) {
     await db.insert(schema.aiQuestions).values({ siteId, question, topic: "Added by you" }).onConflictDoNothing();
@@ -455,7 +474,7 @@ export async function addAiQuestion(siteId: string, form: FormData) {
 }
 
 export async function hideAiQuestion(siteId: string, questionId: string) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   await db
     .update(schema.aiQuestions)
     .set({ hidden: true })
@@ -465,7 +484,7 @@ export async function hideAiQuestion(siteId: string, questionId: string) {
 
 /** Quick win: plan and write an article that answers a question AI currently answers without you. */
 export async function writeForQuestion(siteId: string, questionId: string) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   const q = await db.query.aiQuestions.findFirst({
     where: and(eq(schema.aiQuestions.id, questionId), eq(schema.aiQuestions.siteId, siteId)),
   });
@@ -485,13 +504,13 @@ export async function writeForQuestion(siteId: string, questionId: string) {
 }
 
 export async function scoreSitePosts(siteId: string) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   await enqueue("score-posts", { siteId });
   revalidatePath(`/sites/${siteId}/grow`);
 }
 
 export async function trackCompetitor(siteId: string, name: string, domain: string) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   const existing = await db.query.competitors.findFirst({
     where: and(eq(competitors.siteId, siteId), eq(competitors.domain, domain)),
   });
@@ -504,14 +523,14 @@ export async function trackCompetitor(siteId: string, name: string, domain: stri
 const { socialPosts, reviews } = schema;
 
 async function requirePost(siteId: string, postId: string) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   const post = await db.query.socialPosts.findFirst({ where: and(eq(socialPosts.id, postId), eq(socialPosts.siteId, siteId)) });
   if (!post) redirect(`/sites/${siteId}/posts`);
   return post;
 }
 
 export async function generateSocialPosts(siteId: string) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   await enqueue("generate-posts", { siteId });
   revalidatePath(`/sites/${siteId}/posts`);
 }
@@ -547,7 +566,7 @@ export async function deletePost(siteId: string, postId: string) {
 }
 
 export async function saveSocialSettings(siteId: string, form: FormData) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   const channels = ["google", "facebook", "instagram", "linkedin", "x"].filter((c) => form.get(`ch_${c}`) === "on") as
     ("google" | "facebook" | "instagram" | "linkedin" | "x")[];
   await db
@@ -562,13 +581,13 @@ export async function saveSocialSettings(siteId: string, form: FormData) {
 }
 
 export async function syncReviewsNow(siteId: string) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   await enqueue("sync-reviews", { siteId });
   revalidatePath(`/sites/${siteId}/reviews`);
 }
 
 export async function sendReply(siteId: string, reviewId: string, _: FormState, form: FormData): Promise<FormState> {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   const r = await db.query.reviews.findFirst({ where: and(eq(reviews.id, reviewId), eq(reviews.siteId, siteId)) });
   const reply = String(form.get("reply") ?? "").trim();
   if (!r || !reply) return { error: "Write a reply first." };
@@ -584,7 +603,7 @@ export async function sendReply(siteId: string, reviewId: string, _: FormState, 
 
 /** Picks which Business Profile location belongs to this site (when several were found). */
 export async function chooseGbpLocation(siteId: string, form: FormData) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   const row = await db.query.integrations.findFirst({ where: and(eq(integrations.siteId, siteId), eq(integrations.type, "GBP")) });
   const choices = JSON.parse(row?.config?.choices ?? "[]") as { account: string; location: string; title: string; address: string }[];
   const pick = choices[Number(form.get("index"))];
@@ -601,7 +620,7 @@ export async function chooseGbpLocation(siteId: string, form: FormData) {
 
 /** Drag-and-drop on the calendar: moves an article or post to another day (keeps its time). */
 export async function rescheduleItem(siteId: string, kind: "article" | "post", id: string, dayIso: string) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   const day = new Date(`${dayIso}T00:00:00`);
   if (Number.isNaN(day.getTime())) return { error: "Bad date" };
   const withTime = (old: Date | null) => {
@@ -625,7 +644,7 @@ export async function rescheduleItem(siteId: string, kind: "article" | "post", i
 }
 
 export async function removeFromPlan(siteId: string, kind: "article" | "post", id: string) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   if (kind === "article") {
     const a = await db.query.articles.findFirst({ where: and(eq(articles.id, id), eq(articles.siteId, siteId)) });
     if (!a || a.status === "PUBLISHED") return;
@@ -639,7 +658,7 @@ export async function removeFromPlan(siteId: string, kind: "article" | "post", i
 
 /** Create → Write with AI → Blog article: plans and writes an article for a topic or keyword. */
 export async function createArticleFromTopic(siteId: string, _: FormState, form: FormData): Promise<FormState> {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   const topic = String(form.get("topic") ?? "").trim();
   if (topic.length < 4) return { error: "Enter a topic or keyword." };
   const phrase = topic.toLowerCase().replace(/[?!.]+$/, "");
@@ -655,7 +674,7 @@ export async function createArticleFromTopic(siteId: string, _: FormState, form:
 
 /** Create → Write it myself → Blog article. */
 export async function createBlankArticle(siteId: string) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   const [a] = await db
     .insert(articles)
     .values({ siteId, title: "Untitled article", contentMd: "Start writing here…", status: "REVIEW", plannedFor: new Date() })
@@ -665,7 +684,7 @@ export async function createBlankArticle(siteId: string) {
 
 /** Create → social/Google post, written by AI (one post) or blank for writing yourself. */
 export async function createPost(siteId: string, channel: "google" | "facebook" | "instagram" | "linkedin" | "x", withAi: boolean) {
-  const { site } = await requireSite(siteId);
+  const { site } = await requireSiteManage(siteId);
   let text = "Write your post here…";
   if (withAi) {
     const { loadContext } = await import("@/lib/jobs");
@@ -686,7 +705,7 @@ export async function createPost(siteId: string, channel: "google" | "facebook" 
 }
 
 export async function uploadPhotos(siteId: string, _: FormState, form: FormData): Promise<FormState> {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   const files = form.getAll("photos").filter((f): f is File => f instanceof File && f.size > 0).slice(0, 10);
   if (files.length === 0) return { error: "Choose up to 10 photos." };
   const { savePhoto } = await import("@/lib/photos");
@@ -703,20 +722,20 @@ export async function uploadPhotos(siteId: string, _: FormState, form: FormData)
 }
 
 export async function updatePhoto(siteId: string, photoId: string, form: FormData) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   const description = String(form.get("description") ?? "").trim() || null;
   await db.update(schema.photos).set({ description }).where(and(eq(schema.photos.id, photoId), eq(schema.photos.siteId, siteId)));
   revalidatePath(`/sites/${siteId}/content`);
 }
 
 export async function deletePhoto(siteId: string, photoId: string) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   await db.delete(schema.photos).where(and(eq(schema.photos.id, photoId), eq(schema.photos.siteId, siteId)));
   revalidatePath(`/sites/${siteId}/content`);
 }
 
 export async function savePhotoUsage(siteId: string, form: FormData) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   const v = String(form.get("photoUsage"));
   if (v === "always" || v === "relevant" || v === "never") await db.update(sites).set({ photoUsage: v }).where(eq(sites.id, siteId));
   revalidatePath(`/sites/${siteId}/content`);
@@ -725,7 +744,7 @@ export async function savePhotoUsage(siteId: string, form: FormData) {
 // ---- Results: website health ----
 
 export async function runSiteAudit(siteId: string) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   const { startAudit } = await import("@/lib/audit");
   await startAudit(siteId);
   revalidatePath(`/sites/${siteId}/results/health`);
@@ -734,13 +753,13 @@ export async function runSiteAudit(siteId: string) {
 // ---- Results: Google Maps ----
 
 export async function syncMapsNow(siteId: string) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   await enqueue("sync-gbp-metrics", { siteId });
   revalidatePath(`/sites/${siteId}/results/maps`);
 }
 
 export async function runGeoGridScan(siteId: string, _prev: { error?: string; ok?: string } | undefined, form: FormData) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   const keyword = String(form.get("keyword") ?? "").trim();
   const size = [3, 5, 7].includes(Number(form.get("size"))) ? Number(form.get("size")) : 5;
   const radiusKm = Math.min(25, Math.max(0.5, Number(form.get("radius")) || 3));
@@ -758,7 +777,7 @@ export async function runGeoGridScan(siteId: string, _prev: { error?: string; ok
 // ---- Google profile ----
 
 export async function suggestGbpDescription(siteId: string, _prev: { error?: string; text?: string } | undefined) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   try {
     const { loadContext } = await import("@/lib/jobs");
     const { text } = await import("@/lib/ai");
@@ -776,7 +795,7 @@ export async function suggestGbpDescription(siteId: string, _prev: { error?: str
 }
 
 export async function saveGbpDescription(siteId: string, _prev: { error?: string; ok?: string } | undefined, form: FormData) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   const description = String(form.get("description") ?? "").trim();
   if (description.length < 50) return { error: "Write at least 50 characters." };
   if (description.length > 750) return { error: "Google allows up to 750 characters." };
@@ -797,7 +816,7 @@ export async function saveGbpDescription(siteId: string, _prev: { error?: string
 // ---- Testimonials ----
 
 export async function toggleTestimonial(siteId: string, reviewId: string) {
-  const { site } = await requireSite(siteId);
+  const { site } = await requireSiteManage(siteId);
   const r = await db.query.reviews.findFirst({ where: and(eq(schema.reviews.id, reviewId), eq(schema.reviews.siteId, siteId)) });
   if (!r) return;
   await db.update(schema.reviews).set({ isTestimonial: !r.isTestimonial }).where(eq(schema.reviews.id, reviewId));
@@ -811,14 +830,14 @@ export async function toggleTestimonial(siteId: string, reviewId: string) {
 // ---- Grow extras ----
 
 export async function startGrow(siteId: string, kind: "plan" | "report" | "conversations" | "directories" | "events") {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   const { startInsight } = await import("@/lib/grow/jobs");
   await startInsight(siteId, kind);
   revalidatePath(`/sites/${siteId}/grow`, "layout");
 }
 
 export async function toggleGrowDone(siteId: string, kind: "plan" | "directories", itemId: string) {
-  await requireSite(siteId);
+  await requireSiteManage(siteId);
   const { toggleDone } = await import("@/lib/grow/jobs");
   await toggleDone(siteId, kind, itemId);
   revalidatePath(`/sites/${siteId}/grow`, "layout");
@@ -826,7 +845,7 @@ export async function toggleGrowDone(siteId: string, kind: "plan" | "directories
 
 /** Drafts a Google post for an upcoming occasion, scheduled the day before at 10:30. */
 export async function draftEventPost(siteId: string, ev: { date: string; name: string; idea: string }) {
-  const { site } = await requireSite(siteId);
+  const { site } = await requireSiteManage(siteId);
   const { loadContext } = await import("@/lib/jobs");
   const { text: ai } = await import("@/lib/ai");
   const { context } = await loadContext(siteId);
@@ -851,4 +870,108 @@ export async function draftEventPost(siteId: string, ev: { date: string; name: s
     await db.update(schema.siteInsights).set({ data: { ...data, drafted: [...new Set([...(data.drafted ?? []), `${ev.date}|${ev.name}`])] } }).where(eq(schema.siteInsights.id, row.id));
   }
   revalidatePath(`/sites/${siteId}/grow`, "layout");
+}
+
+// ---- Client logins ----
+
+type InviteState = { error?: string; ok?: string; link?: string } | undefined;
+
+/** Creates a one-time invite link for a client; the agency sends it by WhatsApp or email. */
+export async function createClientInvite(siteId: string, _: InviteState, form: FormData): Promise<InviteState> {
+  const { site, workspace } = await requireSiteManage(siteId);
+  const email = String(form.get("email") ?? "").trim().toLowerCase();
+  const name = String(form.get("name") ?? "").trim() || null;
+  if (!z.string().email().safeParse(email).success) return { error: "Enter the client's email." };
+  if (site.onboardingStep !== "DONE") return { error: "Finish setting up this website first." };
+  const existing = await db.query.users.findFirst({ where: eq(users.email, email), with: { memberships: true } });
+  if (existing?.memberships.some((m) => m.workspaceId === workspace.id && m.role !== "CLIENT")) {
+    return { error: "That email belongs to your own team; they can already see every client." };
+  }
+  if (existing && !existing.memberships.some((m) => m.workspaceId === workspace.id)) {
+    return { error: "That email already has a separate Venner SEO account. Use a different email for the client login." };
+  }
+  const { randomBytes, createHash } = await import("node:crypto");
+  const token = randomBytes(24).toString("base64url");
+  await db.insert(schema.invites).values({
+    workspaceId: workspace.id, siteId, email, name,
+    tokenHash: createHash("sha256").update(token).digest("hex"),
+    expiresAt: new Date(Date.now() + 14 * 86400_000),
+  });
+  const appUrl = (process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  revalidatePath(`/sites/${siteId}/settings`);
+  return { ok: "Invite link ready. Send it to your client; it works once and expires in 14 days.", link: `${appUrl}/invite/${token}` };
+}
+
+export async function revokeClientAccess(siteId: string, userId: string) {
+  await requireSiteManage(siteId);
+  await db.delete(schema.clientSiteAccess).where(and(eq(schema.clientSiteAccess.siteId, siteId), eq(schema.clientSiteAccess.userId, userId)));
+  revalidatePath(`/sites/${siteId}/settings`);
+}
+
+export async function cancelInvite(siteId: string, inviteId: string) {
+  await requireSiteManage(siteId);
+  await db.delete(schema.invites).where(and(eq(schema.invites.id, inviteId), eq(schema.invites.siteId, siteId)));
+  revalidatePath(`/sites/${siteId}/settings`);
+}
+
+async function findInvite(token: string) {
+  const { createHash } = await import("node:crypto");
+  const inv = await db.query.invites.findFirst({ where: eq(schema.invites.tokenHash, createHash("sha256").update(token).digest("hex")) });
+  if (!inv || inv.acceptedAt || inv.expiresAt < new Date()) return null;
+  return inv;
+}
+
+/** The client opens the invite link and sets a password (or enters their existing one). */
+export async function acceptInvite(token: string, _: FormState, form: FormData): Promise<FormState> {
+  const inv = await findInvite(token);
+  if (!inv) return { error: "This invite link has expired or was already used. Ask your agency for a new one." };
+  const password = String(form.get("password") ?? "");
+  const name = String(form.get("name") ?? "").trim() || inv.name;
+  const existing = await db.query.users.findFirst({ where: eq(users.email, inv.email), with: { memberships: true } });
+  let userId: string;
+  if (existing) {
+    if (!(await verifyPassword(password, existing.passwordHash))) return { error: "You already have a login with this email. Enter that password." };
+    if (!existing.memberships.some((m) => m.workspaceId === inv.workspaceId)) return { error: "This email is used by another account. Ask your agency to invite a different email." };
+    userId = existing.id;
+  } else {
+    if (password.length < 8) return { error: "Choose a password of at least 8 characters." };
+    const passwordHash = await hashPassword(password);
+    userId = await db.transaction(async (tx) => {
+      const [u] = await tx.insert(users).values({ email: inv.email, name, passwordHash }).returning({ id: users.id });
+      await tx.insert(memberships).values({ userId: u.id, workspaceId: inv.workspaceId, role: "CLIENT" });
+      return u.id;
+    });
+  }
+  await db.insert(schema.clientSiteAccess).values({ userId, siteId: inv.siteId }).onConflictDoNothing();
+  await db.update(schema.invites).set({ acceptedAt: new Date() }).where(eq(schema.invites.id, inv.id));
+  await createSession(userId);
+  redirect(`/sites/${inv.siteId}`);
+}
+
+// ---- Client reports & agency branding ----
+
+export async function createReportLink(siteId: string) {
+  await requireSiteManage(siteId);
+  const { randomBytes } = await import("node:crypto");
+  await db.update(schema.sites).set({ reportToken: randomBytes(18).toString("base64url") }).where(eq(schema.sites.id, siteId));
+  revalidatePath(`/sites/${siteId}/results/report`);
+}
+
+export async function disableReportLink(siteId: string) {
+  await requireSiteManage(siteId);
+  await db.update(schema.sites).set({ reportToken: null }).where(eq(schema.sites.id, siteId));
+  revalidatePath(`/sites/${siteId}/results/report`);
+}
+
+export async function saveBranding(_: FormState, form: FormData): Promise<FormState> {
+  const { workspace } = await requireAgency();
+  const brandName = String(form.get("brandName") ?? "").trim() || null;
+  const logoUrl = String(form.get("logoUrl") ?? "").trim() || null;
+  const brandColor = String(form.get("brandColor") ?? "").trim() || null;
+  const reportFooter = String(form.get("reportFooter") ?? "").trim() || null;
+  if (logoUrl && !/^https:\/\/\S+$/.test(logoUrl)) return { error: "Logo must be an https:// link to an image (e.g. from your website's media library)." };
+  if (brandColor && !/^#[0-9a-fA-F]{6}$/.test(brandColor)) return { error: "Colour must look like #4f46e5." };
+  await db.update(workspaces).set({ brandName, logoUrl, brandColor, reportFooter: reportFooter?.slice(0, 300) ?? null }).where(eq(workspaces.id, workspace.id));
+  revalidatePath("/sites", "layout");
+  return { ok: "Saved" };
 }

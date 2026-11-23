@@ -56,6 +56,12 @@ export async function computeTodos(site: Site): Promise<Todo[]> {
     todos.push({ id: "failed-posts", type: "fix", title: `${plural(failedPosts.n, "Google post", "Google posts")} failed`, detail: "Check the error and post again.", action: { label: "Fix", href: `${base}/content?tab=google` } });
   if (factIssues.n > 0)
     todos.push({ id: "fact-issues", type: "fix", title: `${plural(factIssues.n, "draft has", "drafts have")} claims to check`, detail: "The fact check found statements your Business Blueprint doesn't back up.", action: { label: "Review", href: `${base}/content?tab=articles&status=review` } });
+  const asked = await db.query.articles.findMany({
+    where: and(eq(A.siteId, site.id), sql`${A.clientNote} is not null`),
+    columns: { id: true, title: true, clientNote: true },
+  });
+  for (const a of asked)
+    todos.push({ id: `client-note-${a.id}`, type: "urgent", title: `Client asked for changes: ${a.title}`, detail: a.clientNote ?? "", action: { label: "Open", href: `${base}/content/${a.id}` } });
   const audit = await db.query.siteAudits.findFirst({
     where: and(eq(schema.siteAudits.siteId, site.id), eq(schema.siteAudits.status, "DONE")),
     orderBy: desc(schema.siteAudits.createdAt),

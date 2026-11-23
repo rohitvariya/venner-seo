@@ -3,7 +3,10 @@ import { notFound } from "next/navigation";
 import { requireSite } from "@/lib/auth";
 import { and, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
-import { approveArticle, deleteArticle, regenerateArticle, unscheduleArticle } from "@/app/actions";
+import { approveArticle, clearClientNote, deleteArticle, regenerateArticle, requestArticleChanges, unscheduleArticle } from "@/app/actions";
+import { marked } from "marked";
+import { addHeadingIds } from "@/lib/headings";
+import { RequestChanges } from "@/components/client/request-changes";
 import { ArticleEditor } from "@/components/article-editor";
 import { ScoreBadge, StatusBadge } from "@/components/badges";
 import { AutoRefresh, SubmitButton } from "@/components/ui";
@@ -13,7 +16,7 @@ import { FactIssues, GooglePreview, Pipeline, SearchDetails } from "@/components
 
 export default async function ArticlePage({ params }: { params: Promise<{ siteId: string; articleId: string }> }) {
   const { siteId, articleId } = await params;
-  const { site } = await requireSite(siteId);
+  const { site, isClient } = await requireSite(siteId);
   const article = await db.query.articles.findFirst({
     where: and(eq(schema.articles.id, articleId), eq(schema.articles.siteId, siteId)),
     with: { keyword: true },
@@ -26,6 +29,52 @@ export default async function ArticlePage({ params }: { params: Promise<{ siteId
   const checks: SeoCheck[] = article.seoChecks ?? [];
   const words = (article.contentMd ?? "").split(/\s+/).filter(Boolean).length;
   const canPublish = !!article.contentMd && ["REVIEW", "APPROVED", "FAILED", "PUBLISHED"].includes(article.status);
+
+  if (isClient) {
+    const html = article.contentMd ? addHeadingIds(marked.parse(article.contentMd, { async: false }) as string) : "";
+    const waiting = article.status === "REVIEW" && !!article.contentMd;
+    return (
+      <div className="space-y-6">
+        <Link href={`/sites/${siteId}`} className="text-sm text-brand-500">← Home</Link>
+        <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
+          <article className="card">
+            {article.heroImageUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={article.heroImageUrl} alt="" className="mb-5 aspect-[2/1] w-full rounded-xl object-cover" />
+            )}
+            <h1 className="mb-4 text-3xl font-semibold leading-tight">{article.title}</h1>
+            {html ? <div className="prose-article max-w-none" dangerouslySetInnerHTML={{ __html: html }} /> : <p className="text-slate-500">Being written…</p>}
+          </article>
+          <aside className="space-y-4">
+            <div className="card space-y-3">
+              <StatusBadge status={article.status} />
+              {article.publishedUrl && article.status === "PUBLISHED" && (
+                <a href={article.publishedUrl} target="_blank" rel="noreferrer" className="block text-sm text-brand-600">View it on your website ↗</a>
+              )}
+              {waiting ? (
+                <>
+                  <p className="text-sm text-slate-600">Happy with this article? Approve it and it goes live on your website.</p>
+                  <form action={approveArticle.bind(null, siteId, articleId)}>
+                    <input type="hidden" name="when" value="now" />
+                    <SubmitButton className="btn-primary w-full" pending="Approving…">Approve &amp; publish</SubmitButton>
+                  </form>
+                  <div className="border-t pt-3">
+                    <p className="mb-2 text-sm font-medium">Something to change?</p>
+                    {article.clientNote && <p className="mb-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-800">You asked: {article.clientNote}</p>}
+                    <RequestChanges action={requestArticleChanges.bind(null, siteId, articleId)} />
+                  </div>
+                </>
+              ) : article.status === "SCHEDULED" ? (
+                <p className="text-sm text-slate-600">Approved. Goes live {article.scheduledAt?.toLocaleDateString("en-GB", { day: "numeric", month: "long" })}.</p>
+              ) : null}
+            </div>
+            <GooglePreview domain={site.domain} slug={article.slug} metaTitle={article.metaTitle}
+              metaDescription={article.metaDescription} siteName={site.businessName ?? site.domain} />
+          </aside>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -54,6 +103,13 @@ export default async function ArticlePage({ params }: { params: Promise<{ siteId
           </form>
         </div>
       </div>
+
+      {article.clientNote && (
+        <div className="flex items-start justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm">
+          <div><div className="font-semibold text-amber-900">Your client asked for changes</div><p className="mt-1 whitespace-pre-line text-amber-900">{article.clientNote}</p></div>
+          <form action={clearClientNote.bind(null, siteId, articleId)}><SubmitButton className="btn-secondary text-xs" pending="…">Mark as done</SubmitButton></form>
+        </div>
+      )}
 
       {busy && !article.contentMd ? (
         <div className="card text-center text-slate-500">

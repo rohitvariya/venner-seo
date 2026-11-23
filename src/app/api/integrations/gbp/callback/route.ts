@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { cookies } from "next/headers";
-import { requireSite } from "@/lib/auth";
+import { requireSiteManage } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
 import { encryptJson } from "@/lib/crypto";
 import { gbpOAuthClient, listLocations, matchLocation } from "@/lib/gbp";
@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
   const siteId = state.split(".")[0];
   const back = (q: string) => NextResponse.redirect(new URL(`/sites/${siteId}/integrations?gbp=${q}`, process.env.APP_URL));
   if (!code || !expected || expected !== state) return back("error");
-  const { site } = await requireSite(siteId);
+  const { site } = await requireSiteManage(siteId);
 
   try {
     const { tokens } = await gbpOAuthClient().getToken(code);

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { cookies } from "next/headers";
-import { requireSite } from "@/lib/auth";
+import { requireSiteManage } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
 import { encryptJson } from "@/lib/crypto";
 import { listProperties, matchProperty, oauthClient } from "@/lib/gsc";
@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
   const back = (q: string) => NextResponse.redirect(new URL(`/sites/${siteId}/integrations?gsc=${q}`, process.env.APP_URL));
 
   if (!code || !expected || expected !== state) return back("error");
-  const { site } = await requireSite(siteId);
+  const { site } = await requireSiteManage(siteId);
 
   try {
     const { tokens } = await oauthClient().getToken(code);

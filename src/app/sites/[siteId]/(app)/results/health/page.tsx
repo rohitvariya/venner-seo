@@ -33,7 +33,7 @@ function ScoreRing({ score }: { score: number }) {
 export default async function HealthPage({ params, searchParams }: { params: Promise<{ siteId: string }>; searchParams: Promise<{ sev?: string }> }) {
   const { siteId } = await params;
   const { sev } = await searchParams;
-  const { site } = await requireSite(siteId);
+  const { site, isClient } = await requireSite(siteId);
   const audits = await db.query.siteAudits.findMany({
     where: eq(schema.siteAudits.siteId, siteId),
     orderBy: desc(schema.siteAudits.createdAt),
@@ -60,9 +60,11 @@ export default async function HealthPage({ params, searchParams }: { params: Pro
             Technical and on-page checks for {site.domain}. Fix these and Google can find, understand and rank your pages.
           </p>
         </div>
-        <form action={run}>
-          <SubmitButton className="btn-primary" pending="Starting…">{done || failed ? "Check again" : "Check my website"}</SubmitButton>
-        </form>
+        {!isClient && (
+          <form action={run}>
+            <SubmitButton className="btn-primary" pending="Starting…">{done || failed ? "Check again" : "Check my website"}</SubmitButton>
+          </form>
+        )}
       </div>
 
       {running && (

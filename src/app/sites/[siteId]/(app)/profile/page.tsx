@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { and, desc, eq, gte } from "drizzle-orm";
 import { CheckCircle2, Circle, ExternalLink } from "lucide-react";
-import { requireSite } from "@/lib/auth";
+import { requireSitePageForAgency } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
 import { saveGbpDescription, suggestGbpDescription, syncMapsNow } from "@/app/actions";
 import { SubmitButton } from "@/components/ui";
@@ -13,7 +13,7 @@ const digits = (s: string | null | undefined) => (s ?? "").replace(/\D/g, "").sl
 
 export default async function ProfilePage({ params }: { params: Promise<{ siteId: string }> }) {
   const { siteId } = await params;
-  const { site } = await requireSite(siteId);
+  const { site } = await requireSitePageForAgency(siteId);
   const monthAgo = new Date(Date.now() - 30 * 86400_000);
   const weekAgo = new Date(Date.now() - 7 * 86400_000);
   const [gbp, row, reviews, posts] = await Promise.all([

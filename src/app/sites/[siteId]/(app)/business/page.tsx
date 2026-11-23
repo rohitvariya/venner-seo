@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { asc, eq } from "drizzle-orm";
-import { requireSite } from "@/lib/auth";
+import { requireSitePageForAgency } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
 import { addCompetitor, removeCompetitor, rescanSite } from "@/app/actions";
 import { BlueprintForm } from "@/components/blueprint-form";
@@ -35,7 +35,7 @@ export default async function BusinessPage({ params, searchParams }: {
 }) {
   const { siteId } = await params;
   const { tab = "customers" } = await searchParams;
-  const { site } = await requireSite(siteId);
+  const { site } = await requireSitePageForAgency(siteId);
   const bp = site.blueprint;
   const [competitors, keywordRows] = await Promise.all([
     db.query.competitors.findMany({ where: eq(schema.competitors.siteId, siteId) }),

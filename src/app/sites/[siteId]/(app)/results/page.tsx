@@ -13,7 +13,7 @@ function sum<T>(rows: T[], f: (r: T) => number) {
 
 export default async function ResultsPage({ params }: { params: Promise<{ siteId: string }> }) {
   const { siteId } = await params;
-  const { site } = await requireSite(siteId);
+  const { site, isClient } = await requireSite(siteId);
   const { gscDailyMetrics: D, gscQueryMetrics: Q, integrations: I, articles: A } = schema;
   const [daily, queries, gsc, counts, upcoming] = await Promise.all([
     db.query.gscDailyMetrics.findMany({ where: eq(D.siteId, siteId), orderBy: asc(D.date) }),
@@ -52,13 +52,13 @@ export default async function ResultsPage({ params }: { params: Promise<{ siteId
             <div className="font-medium">Connect Google Search Console</div>
             <p className="text-sm text-slate-500">See clicks, impressions and the searches you appear for.</p>
           </div>
-          <Link href={`/sites/${siteId}/integrations`} className="btn-primary">Connect</Link>
+          {!isClient && <Link href={`/sites/${siteId}/integrations`} className="btn-primary">Connect</Link>}
         </div>
       ) : (
         <div className="card">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="font-semibold">Clicks from Google, last 90 days</h2>
-            <form action={syncGscNow.bind(null, siteId)}><SubmitButton className="btn-secondary" pending="Queued">Refresh</SubmitButton></form>
+            {!isClient && <form action={syncGscNow.bind(null, siteId)}><SubmitButton className="btn-secondary" pending="Queued">Refresh</SubmitButton></form>}
           </div>
           <LineChart points={daily.map((d) => ({ label: d.date.slice(5), value: d.clicks }))} />
         </div>

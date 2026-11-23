@@ -36,7 +36,8 @@ const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart
 // Items carry UTC timestamps; place them on the viewer's local day.
 const dayOf = (at: string) => iso(new Date(at));
 
-export function Calendar({ siteId, items, view, anchor, filter }: {
+export function Calendar({ siteId, items, view, anchor, filter, readOnly = false }: {
+  readOnly?: boolean;
   siteId: string;
   items: CalItem[];
   view: "week" | "month";
@@ -172,7 +173,7 @@ export function Calendar({ siteId, items, view, anchor, filter }: {
                         {menu === i.id && (
                           <div className="absolute right-1 top-7 z-20 w-40 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
                             <Link href={i.href} className="block rounded px-2 py-1.5 hover:bg-slate-50">Open</Link>
-                            {i.locked ? (
+                            {readOnly ? null : i.locked ? (
                               <span className="block px-2 py-1.5 text-slate-400">Can&apos;t move this one</span>
                             ) : (
                               <button onClick={() => { setMenu(null); start(async () => { await removeFromPlan(siteId, i.kind, i.id); router.refresh(); }); }}
@@ -189,7 +190,7 @@ export function Calendar({ siteId, items, view, anchor, filter }: {
           })}
         </div>
       </div>
-      <p className="text-xs text-slate-400">Drag a card to another day to reschedule it. Live items stay where they are.</p>
+      {!readOnly && <p className="text-xs text-slate-400">Drag a card to another day to reschedule it. Live items stay where they are.</p>}
     </div>
   );
 }

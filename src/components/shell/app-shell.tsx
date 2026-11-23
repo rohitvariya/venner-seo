@@ -20,9 +20,11 @@ export function AppShell(props: {
   user: { name: string | null; email: string };
   counts: { todo: number; review: number; reviews: number };
   searchItems: { label: string; href: string; kind: string }[];
+  isClient?: boolean;
+  brand?: { name: string; logoUrl: string | null };
   children: React.ReactNode;
 }) {
-  const { siteId, site, sites, user, counts } = props;
+  const { siteId, site, sites, user, counts, isClient = false } = props;
   const path = usePathname();
   const sp = useSearchParams();
   const matchesQuery = (href: string) => {
@@ -32,7 +34,7 @@ export function AppShell(props: {
   };
   const base = `/sites/${siteId}`;
 
-  const rail: NavItem[] = [
+  const allRail: NavItem[] = [
     { href: base, label: "Home", icon: Home, match: [base + "$"], badge: counts.todo },
     { href: `${base}/content`, label: "Content", icon: FileText, match: ["/content", "/keywords", "/posts"], badge: counts.review },
     { href: `${base}/reviews`, label: "Reviews", icon: Star, match: ["/reviews", "/profile"], badge: counts.reviews },
@@ -41,15 +43,19 @@ export function AppShell(props: {
     { href: `${base}/integrations`, label: "Connect", icon: Plug, match: ["/integrations"] },
     { href: `${base}/settings`, label: "Settings", icon: Settings, match: ["/settings"] },
   ];
-  const bottom: NavItem[] = [
-    { href: `${base}/business`, label: "Business", icon: Briefcase, match: ["/business"] },
-    { href: "/sites", label: "Account", icon: UserCircle2, match: [] },
-  ];
+  // Client logins see their results and approvals only.
+  const rail = isClient ? allRail.filter((i) => ["Home", "Content", "Reviews", "Results"].includes(i.label)) : allRail;
+  const bottom: NavItem[] = isClient
+    ? [{ href: "/sites", label: "Account", icon: UserCircle2, match: [] }]
+    : [
+        { href: `${base}/business`, label: "Business", icon: Briefcase, match: ["/business"] },
+        { href: "/sites", label: "Clients", icon: UserCircle2, match: [] },
+      ];
   const isActive = (i: NavItem) =>
     i.match.some((m) => (m.endsWith("$") ? path === m.slice(0, -1) : path.startsWith(base + m) || path.startsWith(m)));
   const active = [...rail, ...bottom].find(isActive) ?? rail[0];
 
-  const sub = useMemo(() => subNav(base, active.label), [base, active.label]);
+  const sub = useMemo(() => subNav(base, active.label, isClient), [base, active.label, isClient]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
 
@@ -65,9 +71,9 @@ export function AppShell(props: {
   }, []);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50">
+    <div className="flex h-screen overflow-hidden bg-slate-50 print:block print:h-auto print:overflow-visible print:bg-white">
       {/* Icon rail */}
-      <nav className="flex w-[68px] shrink-0 flex-col items-center gap-1 border-r border-slate-200 bg-white py-3">
+      <nav className="flex w-[68px] shrink-0 print:hidden flex-col items-center gap-1 border-r border-slate-200 bg-white py-3">
         {rail.map((i) => <RailLink key={i.label} item={i} active={active.label === i.label} />)}
         <div className="flex-1" />
         {bottom.map((i) => <RailLink key={i.label} item={i} active={active.label === i.label} />)}
@@ -75,9 +81,18 @@ export function AppShell(props: {
       </nav>
 
       {/* Section sub-nav */}
-      <aside className="flex w-56 shrink-0 flex-col border-r border-slate-200 bg-white">
+      <aside className="flex w-56 shrink-0 print:hidden flex-col border-r border-slate-200 bg-white">
         <div className="px-4 pb-2 pt-4">
-          <Link href="/sites" className="text-lg font-bold tracking-tight text-brand-600">venner<span className="text-slate-900">SEO</span></Link>
+          <Link href="/sites" className="text-lg font-bold tracking-tight text-brand-600">
+            {props.brand?.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={props.brand.logoUrl} alt={props.brand.name} className="h-7 max-w-[160px] object-contain" />
+            ) : isClient && props.brand ? (
+              <span className="text-slate-900">{props.brand.name}</span>
+            ) : (
+              <>venner<span className="text-slate-900">SEO</span></>
+            )}
+          </Link>
         </div>
         <div className="relative px-3">
           <button
@@ -100,7 +115,7 @@ export function AppShell(props: {
                   <span className="block text-xs font-normal text-slate-500">{s.domain}</span>
                 </Link>
               ))}
-              <Link href="/sites" className="block rounded-lg px-3 py-2 text-sm text-brand-600 hover:bg-slate-50">+ Add a website</Link>
+              {!isClient && <Link href="/sites" className="block rounded-lg px-3 py-2 text-sm text-brand-600 hover:bg-slate-50">All clients · + Add</Link>}
             </div>
           )}
         </div>
@@ -134,17 +149,17 @@ export function AppShell(props: {
 
       {/* Main */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-6">
+        <header className="flex h-14 shrink-0 print:hidden items-center justify-between border-b border-slate-200 bg-white px-6">
           <h1 className="text-base font-semibold">{active.label}</h1>
           <button onClick={() => setPaletteOpen(true)}
             className="flex w-64 items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-400 hover:border-slate-300">
             <Search size={14} /> Search dashboard <kbd className="ml-auto rounded bg-slate-100 px-1.5 text-[11px] text-slate-500">⌘K</kbd>
           </button>
         </header>
-        <main className="min-w-0 flex-1 overflow-y-auto p-6 lg:p-8">{props.children}</main>
+        <main className="min-w-0 flex-1 overflow-y-auto p-6 lg:p-8 print:overflow-visible print:p-0">{props.children}</main>
       </div>
 
-      {paletteOpen && <CommandPalette base={base} items={props.searchItems} onClose={() => setPaletteOpen(false)} />}
+      {paletteOpen && <CommandPalette base={base} items={props.searchItems} isClient={isClient} onClose={() => setPaletteOpen(false)} />}
     </div>
   );
 }
@@ -171,7 +186,25 @@ function RailLink({ item, active }: { item: NavItem; active: boolean }) {
   );
 }
 
-function subNav(base: string, section: string): { href: string; label: string; exact?: boolean }[] {
+function subNav(base: string, section: string, isClient = false): { href: string; label: string; exact?: boolean }[] {
+  if (isClient) {
+    if (section === "Content")
+      return [
+        { href: `${base}/content?tab=calendar`, label: "Calendar" },
+        { href: `${base}/content?tab=articles`, label: "Articles" },
+        { href: `${base}/content?tab=google`, label: "Google posts" },
+        { href: `${base}/content?tab=social`, label: "Social" },
+      ];
+    if (section === "Reviews") return [{ href: `${base}/reviews?tab=all`, label: "Google reviews", exact: true }];
+    if (section === "Results")
+      return [
+        { href: `${base}/results/report`, label: "Monthly report" },
+        { href: `${base}/results`, label: "Google Search", exact: true },
+        { href: `${base}/results/health`, label: "Website health" },
+        { href: `${base}/results/maps`, label: "Google Maps" },
+      ];
+    return [{ href: base, label: "Overview", exact: true }];
+  }
   switch (section) {
     case "Home":
       return [{ href: base, label: "Overview", exact: true }, { href: `${base}?tab=todo`, label: "To-do", exact: true }];
@@ -196,6 +229,7 @@ function subNav(base: string, section: string): { href: string; label: string; e
         { href: `${base}/results/health`, label: "Website health" },
         { href: `${base}/results/maps`, label: "Google Maps" },
         { href: `${base}/grow`, label: "AI answers" },
+        { href: `${base}/results/report`, label: "Client report" },
       ];
     case "Grow":
       return [
@@ -221,17 +255,24 @@ function subNav(base: string, section: string): { href: string; label: string; e
   }
 }
 
-function CommandPalette({ base, items, onClose }: { base: string; items: { label: string; href: string; kind: string }[]; onClose: () => void }) {
+function CommandPalette({ base, items, isClient, onClose }: { base: string; items: { label: string; href: string; kind: string }[]; isClient: boolean; onClose: () => void }) {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [sel, setSel] = useState(0);
   const input = useRef<HTMLInputElement>(null);
-  const pages = [
+  const clientPages = [
+    ["Home", base], ["Content calendar", `${base}/content`], ["Articles", `${base}/content?tab=articles`], ["Google posts", `${base}/content?tab=google`],
+    ["Reviews", `${base}/reviews?tab=all`], ["Monthly report", `${base}/results/report`], ["Google Search", `${base}/results`],
+    ["Website health", `${base}/results/health`], ["Google Maps", `${base}/results/maps`],
+  ];
+  const agencyPages = [
     ["Home", base], ["Content calendar", `${base}/content`], ["Articles", `${base}/content?tab=articles`],
     ["Social posts", `${base}/content?tab=social`], ["Google posts", `${base}/content?tab=google`], ["Photos", `${base}/content?tab=photos`],
     ["Keywords", `${base}/keywords`], ["Reviews", `${base}/reviews`], ["Testimonials", `${base}/reviews?tab=testimonials`], ["Google profile", `${base}/profile`], ["Results", `${base}/results`], ["Website health", `${base}/results/health`], ["Google Maps insights", `${base}/results/maps`], ["Grow: AI visibility", `${base}/grow`], ["30-day plan", `${base}/grow/plan`], ["Content ideas", `${base}/grow/ideas`], ["Conversations", `${base}/grow/conversations`], ["Directories", `${base}/grow/directories`], ["Events & holidays", `${base}/grow/events`], ["Growth report", `${base}/grow/report`],
     ["Connections", `${base}/integrations`], ["Settings", `${base}/settings`], ["Business Blueprint", `${base}/business`],
-  ].map(([label, href]) => ({ label, href, kind: "Page" }));
+    ["Client report", `${base}/results/report`], ["All clients", "/sites"], ["Agency branding", "/sites/branding"],
+  ];
+  const pages = (isClient ? clientPages : agencyPages).map(([label, href]) => ({ label, href, kind: "Page" }));
   const all = [...pages, ...items];
   const results = (q ? all.filter((i) => i.label.toLowerCase().includes(q.toLowerCase())) : pages).slice(0, 12);
   useEffect(() => input.current?.focus(), []);

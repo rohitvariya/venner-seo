@@ -3,6 +3,7 @@ import { and, asc, eq, gte, inArray, lt, or, sql } from "drizzle-orm";
 import { CalendarDays, CheckCircle2, FileText, Globe, Megaphone, Plug, Search as SearchIcon, Star } from "lucide-react";
 import { requireSite } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
+import { ClientHome } from "@/components/client/client-home";
 import { computeTodos, connectionsFor, TODO_LABEL, type TodoType } from "@/lib/todos";
 
 const TYPE_STYLE: Record<TodoType, string> = {
@@ -23,7 +24,8 @@ export default async function HomePage({ params, searchParams }: {
 }) {
   const { siteId } = await params;
   const { tab = "overview", type } = await searchParams;
-  const { site, user } = await requireSite(siteId);
+  const { site, user, isClient, workspace } = await requireSite(siteId);
+  if (isClient) return <ClientHome site={site} firstName={(user.name ?? "").split(" ")[0] || "there"} agency={workspace.brandName ?? workspace.name} />;
   const base = `/sites/${siteId}`;
   const [todos, conn] = await Promise.all([computeTodos(site), connectionsFor(siteId)]);
 
