@@ -109,7 +109,11 @@ export default async function HealthPage({ params, searchParams }: { params: Pro
                 <div className="text-xs text-slate-500">Mobile speed</div>
                 <div className="mt-2 text-3xl font-semibold">{done.stats?.mobileScore ?? "—"}</div>
                 <div className="text-xs text-slate-500">
-                  {done.stats?.lcpMs ? `Main content shows in ${(done.stats.lcpMs / 1000).toFixed(1)}s` : "PageSpeed score, homepage"}
+                  {done.stats?.lcpMs
+                    ? `Main content shows in ${(done.stats.lcpMs / 1000).toFixed(1)}s`
+                    : done.stats?.mobileScore == null
+                      ? "Couldn't measure: Google limits free checks. Add a free PAGESPEED_API_KEY to .env."
+                      : "PageSpeed score, homepage"}
                 </div>
               </div>
             </div>

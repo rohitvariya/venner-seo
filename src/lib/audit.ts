@@ -60,6 +60,7 @@ export type PageFacts = {
   ogTitle: boolean;
   mixedContent: number;
   internalLinks: string[];
+  inSitemap?: boolean;
 };
 
 export function pageFacts(url: string, status: number, ms: number, html: string, host: string): PageFacts {
@@ -237,10 +238,13 @@ export function buildIssues(
   }
 
   // Pages
-  add("broken-pages", "critical", pages.filter((p) => p.status >= 400 || p.status === 0).map((p) => p.url),
+  const broken = pages.filter((p) => p.status >= 400 || p.status === 0);
+  add("broken-pages", "critical", broken.map((p) => (p.inSitemap ? `${p.url} (listed in your sitemap)` : p.url)),
     (n) => `${n} ${plural(n, "page is", "pages are")} broken (error or not found)`,
     "Broken pages waste Google's crawl time and frustrate visitors who click through from search.",
-    "Restore the page, or add a 301 redirect to the closest working page and update links pointing to it.",
+    broken.some((p) => p.inSitemap)
+      ? "Restore the page or add a 301 redirect to the closest working page. Pages listed in your sitemap that no longer exist should be removed from it (in WordPress, delete or trash the old post/page and clear your SEO plugin's sitemap cache). If you don't recognise them (e.g. casino or pharmacy pages), your site may have been hacked: scan it with Wordfence or Sucuri and change all passwords."
+      : "Restore the page, or add a 301 redirect to the closest working page and update links pointing to it.",
     "No broken pages");
   add("broken-links", "warning", site.brokenLinks.map((b) => `${b.url} (linked from ${b.from}, ${b.status || "no response"})`),
     (n) => `${n} broken internal ${plural(n, "link", "links")}`,
@@ -373,6 +377,7 @@ export async function runAudit(auditId: string) {
     const priority = /(service|solution|about|contact|product|pricing|location|industr|portfolio)/i;
     const skip = /(\/tag\/|\/category\/|\/author\/|\/page\/\d|\/cart|\/checkout|\/account|\/wp-|\/feed)/i;
     const seen = new Set([homeFacts.url.replace(/\/$/, "")]);
+    const sitemapSet = new Set(sm.urls.map((u) => u.replace(/\/$/, "")));
     const queue = [...new Set([...homeFacts.internalLinks, ...sm.urls])]
       .filter((u) => !skip.test(u))
       .sort((a, b) => Number(priority.test(b)) - Number(priority.test(a)));
@@ -383,8 +388,9 @@ export async function runAudit(auditId: string) {
       if (seen.has(key)) continue;
       seen.add(key);
       const r = await get(url);
-      if (r.html && r.contentType.includes("html")) pages.push(pageFacts(r.finalUrl, r.status, r.ms, r.html, host));
-      else if (r.status >= 400 || r.status === 0) pages.push({ ...pageFacts(url, r.status, r.ms, "<html></html>", host) });
+      const inSitemap = sitemapSet.has(key);
+      if (r.html && r.contentType.includes("html")) pages.push({ ...pageFacts(r.finalUrl, r.status, r.ms, r.html, host), inSitemap });
+      else if (r.status >= 400 || r.status === 0) pages.push({ ...pageFacts(url, r.status, r.ms, "<html></html>", host), inSitemap });
     }
 
     // Internal links found on audited pages that weren't audited: check their status (capped).
