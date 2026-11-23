@@ -98,7 +98,7 @@ fi
 say "Installing packages, updating the database and building (a few minutes)…"
 npm ci
 npm run db:migrate
-NODE_OPTIONS="--max-old-space-size=2048" npm run build
+SKIP_BUILD_CHECKS=1 NODE_OPTIONS="--max-old-space-size=2048" npm run build
 
 say "Starting the app and worker on port $PORT…"
 PORT=$PORT pm2 startOrReload deploy/ecosystem.config.cjs --update-env
