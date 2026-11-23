@@ -2,7 +2,7 @@ import Link from "next/link";
 import { and, desc, eq } from "drizzle-orm";
 import { requireSite } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
-import { syncReviewsNow } from "@/app/actions";
+import { syncReviewsNow, toggleTestimonial } from "@/app/actions";
 import { ReviewReply } from "@/components/review-reply";
 import { SubmitButton } from "@/components/ui";
 
@@ -14,7 +14,7 @@ export default async function ReviewsPage({ params, searchParams }: {
 }) {
   const { siteId } = await params;
   const { tab = "todo" } = await searchParams;
-  await requireSite(siteId);
+  const { site } = await requireSite(siteId);
   const R = schema.reviews;
   const [all, gbp] = await Promise.all([
     db.query.reviews.findMany({ where: eq(R.siteId, siteId), orderBy: desc(R.reviewedAt), limit: 300 }),
@@ -22,6 +22,12 @@ export default async function ReviewsPage({ params, searchParams }: {
   ]);
   const todo = all.filter((r) => !r.replyText);
   const list = tab === "todo" ? todo : all;
+  const candidates = all.filter((r) => r.rating >= 4 && r.comment);
+  const picked = all.filter((r) => r.isTestimonial);
+  const appUrl = (process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  const embed = site.widgetKey
+    ? `<div id="venner-testimonials"></div>\n<script src="${appUrl}/api/public/v1/widget/${site.widgetKey}" async></script>`
+    : null;
   const avg = all.length ? all.reduce((s, r) => s + r.rating, 0) / all.length : 0;
   const replied = all.filter((r) => r.replyText).length;
 
@@ -51,10 +57,47 @@ export default async function ReviewsPage({ params, searchParams }: {
             <div className="card"><div className="text-xs text-slate-500">Reply rate</div><div className="mt-1 text-2xl font-semibold">{all.length ? Math.round((replied / all.length) * 100) : 0}%</div></div>
           </div>
           <div className="flex gap-2">
-            {[["todo", `Needs reply (${todo.length})`], ["all", "All reviews"]].map(([id, label]) => (
+            {[["todo", `Needs reply (${todo.length})`], ["all", "All reviews"], ["testimonials", `Testimonials (${picked.length})`]].map(([id, label]) => (
               <Link key={id} href={`?tab=${id}`} className={`rounded-full px-3 py-1 text-sm ${tab === id ? "bg-brand-500 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}>{label}</Link>
             ))}
           </div>
+          {tab === "testimonials" ? (
+            <div className="space-y-4">
+              <div className="card space-y-2">
+                <h2 className="font-semibold">Show your best reviews on your website</h2>
+                <p className="text-sm text-slate-500">
+                  Pick the reviews to feature. Paste the code below once into your website (a Custom HTML block in WordPress, or a section in Shopify); new picks appear automatically.
+                </p>
+                {embed ? (
+                  <>
+                    <pre className="overflow-x-auto rounded-lg bg-slate-900 p-3 text-xs text-slate-100">{embed}</pre>
+                    {appUrl.includes("localhost") && (
+                      <p className="text-xs text-amber-700">This address only works on your computer. Once Venner SEO is online, the code uses your live address.</p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-sm text-slate-500">Pick a review below to get your website code.</p>
+                )}
+              </div>
+              {candidates.length === 0 && <p className="card text-sm text-slate-500">No 4 or 5 star reviews with text yet.</p>}
+              <div className="grid gap-3 sm:grid-cols-2">
+                {candidates.map((r) => (
+                  <div key={r.id} className={`card flex flex-col gap-2 ${r.isTestimonial ? "ring-2 ring-brand-500" : ""}`}>
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">{r.reviewer ?? "Google user"}</span>
+                      <span className="text-amber-500">{stars(r.rating)}</span>
+                    </div>
+                    <p className="flex-1 text-sm text-slate-700">{r.comment}</p>
+                    <form action={toggleTestimonial.bind(null, siteId, r.id)}>
+                      <SubmitButton className={r.isTestimonial ? "btn-secondary text-xs" : "btn-primary text-xs"} pending="Saving…">
+                        {r.isTestimonial ? "Remove from website" : "Show on website"}
+                      </SubmitButton>
+                    </form>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (<>
           {list.length === 0 && <p className="card text-sm text-slate-500">{tab === "todo" ? "All caught up. Every review has a reply." : "No reviews yet."}</p>}
           <div className="space-y-3">
             {list.map((r) => (
@@ -81,6 +124,7 @@ export default async function ReviewsPage({ params, searchParams }: {
               </div>
             ))}
           </div>
+          </>)}
         </>
       )}
     </div>

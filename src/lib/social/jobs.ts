@@ -21,7 +21,7 @@ const CHANNEL_RULES: Record<PostChannel, string> = {
   x: "X (Twitter) post: under 270 characters including the link, punchy, 1-2 hashtags.",
 };
 
-async function googleLocation(siteId: string) {
+export async function googleLocation(siteId: string) {
   const row = await db.query.integrations.findFirst({ where: and(eq(integrations.siteId, siteId), eq(integrations.type, "GBP")) });
   const cfg = row?.config ?? {};
   if (!row || !cfg.account || !cfg.location) return null;
@@ -244,5 +244,8 @@ export async function socialTick() {
     .set({ lastSyncedAt: new Date() })
     .where(and(eq(integrations.type, "GBP"), sql`coalesce(${integrations.lastSyncedAt}, 'epoch') < ${cutoff}`))
     .returning({ siteId: integrations.siteId });
-  for (const s of stale) await enqueue("sync-reviews", { siteId: s.siteId });
+  for (const s of stale) {
+    await enqueue("sync-reviews", { siteId: s.siteId });
+    await enqueue("sync-gbp-metrics", { siteId: s.siteId });
+  }
 }

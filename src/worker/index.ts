@@ -2,6 +2,9 @@ import { Worker } from "bullmq";
 import { QUEUE_NAME, getQueue, redis, type JobData, type JobName } from "../lib/queue";
 import { planKeywords, publishArticleJob, scanSite, syncGsc, tick, writeArticleJob } from "../lib/jobs";
 import { checkVisibility, findQuestions, scorePosts } from "../lib/visibility/jobs";
+import { runAudit } from "../lib/audit";
+import { runGeoGrid, syncGbpMetrics } from "../lib/maps/jobs";
+import { makeInsight } from "../lib/grow/jobs";
 import { draftGooglePostForArticle, generatePosts, publishPost, syncReviews } from "../lib/social/jobs";
 
 // Background worker: run with `npm run worker` alongside the Next.js app.
@@ -35,6 +38,14 @@ const worker = new Worker<JobData, unknown, JobName>(
         return publishPost(job.data.postId!);
       case "generate-posts":
         return generatePosts(siteId!);
+      case "audit-site":
+        return runAudit(job.data.auditId!);
+      case "sync-gbp-metrics":
+        return syncGbpMetrics(siteId!);
+      case "geo-grid":
+        return runGeoGrid(job.data.scanId!);
+      case "make-insight":
+        return makeInsight(job.data.insightId!);
       case "tick":
         return tick();
     }

@@ -1,6 +1,6 @@
 // "Needs your attention": everything the owner should look at, most important first.
 
-import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db, schema } from "./db";
 import type { Site } from "./schema";
 
@@ -56,6 +56,13 @@ export async function computeTodos(site: Site): Promise<Todo[]> {
     todos.push({ id: "failed-posts", type: "fix", title: `${plural(failedPosts.n, "Google post", "Google posts")} failed`, detail: "Check the error and post again.", action: { label: "Fix", href: `${base}/content?tab=google` } });
   if (factIssues.n > 0)
     todos.push({ id: "fact-issues", type: "fix", title: `${plural(factIssues.n, "draft has", "drafts have")} claims to check`, detail: "The fact check found statements your Business Blueprint doesn't back up.", action: { label: "Review", href: `${base}/content?tab=articles&status=review` } });
+  const audit = await db.query.siteAudits.findFirst({
+    where: and(eq(schema.siteAudits.siteId, site.id), eq(schema.siteAudits.status, "DONE")),
+    orderBy: desc(schema.siteAudits.createdAt),
+  });
+  const critical = (audit?.issues ?? []).filter((i) => i.severity === "critical");
+  if (critical.length > 0)
+    todos.push({ id: "health-critical", type: "fix", title: `Website health: ${plural(critical.length, "critical problem", "critical problems")}`, detail: `${critical[0].title}. Your score is ${audit!.score}/100.`, action: { label: "See fixes", href: `${base}/results/health` } });
   if (!conn.website)
     todos.push({ id: "connect-website", type: "fix", title: "Connect your website", detail: "So approved articles can go live automatically (WordPress, Shopify or a custom site).", action: { label: "Connect", href: `${base}/integrations` } });
   if (!conn.gbp)

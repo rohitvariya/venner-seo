@@ -16,6 +16,12 @@ AI SEO platform for local businesses and agencies. Add a website and it:
 10. **Posts:** writes 2 weeks of Google Business Profile updates and Facebook / Instagram / LinkedIn / X posts from published articles and services. Google posts publish automatically on schedule (with a Learn more / Call button); other channels are copy-and-post for now. Every newly published article gets a Google post drafted automatically.
 11. **Reviews:** syncs Google reviews every ~6 hours, drafts a reply for each in the brand's voice (apologetic and offline-oriented for 1–3 stars), and posts it in one click. Optional auto-reply for 4–5 star reviews.
 
+12. **Website health:** checks up to 40 pages each week (HTTPS, sitemap, robots.txt, broken pages and links, titles, meta descriptions, headings, thin content, alt text, canonical, noindex, mobile viewport, mixed content, schema, social tags, mobile PageSpeed) and gives a score out of 100 with plain-language "why it matters / how to fix" for each problem.
+13. **Google Maps:** profile views, calls, direction requests and website clicks per day, the searches that showed the profile, and a **geo-grid** (3×3 to 7×7 points around the business) showing where it ranks in Google Maps for any search, on a map, re-checked weekly (DataForSEO).
+14. **Google profile:** profile strength checklist (description, categories, hours, photos, reviews, reply rate, weekly posts, phone matching the website), the review link to share, and an AI-written description you can update on Google in one click.
+15. **Testimonials:** pick your best Google reviews and show them on your website with one embed code.
+16. **Grow extras:** a 30-day action plan (tick tasks off), content ideas from Search Console, Maps searches, AI questions and keyword research, online conversations worth joining with a suggested reply, directories to list on (checks where you're already listed), upcoming holidays/events with one-click Google post drafts, and a monthly growth report.
+
 Nothing is published without approval. One login can manage many client websites (workspaces).
 
 ## Stack
@@ -69,6 +75,7 @@ Open http://localhost:3000/signup and create your account.
 | `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD` | recommended | Without them keywords have no volume and competitors aren't auto-found |
 | `PERPLEXITY_API_KEY` / `OPENAI_API_KEY` | optional | Adds Perplexity and ChatGPT to the AI visibility checks (Claude is always checked) |
 | `UNSPLASH_ACCESS_KEY` | optional | Free key from unsplash.com/developers. Auto-picks a featured image per article (photographer credited in the caption) |
+| `PAGESPEED_API_KEY` | optional | Google PageSpeed Insights key for the mobile speed check. Works without one at low volume |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | for GSC | Google Cloud → APIs & Services → enable *Google Search Console API* → OAuth client (Web). Redirect URI: `${APP_URL}/api/integrations/gsc/callback` |
 
 ## Connecting a client site
@@ -76,7 +83,7 @@ Open http://localhost:3000/signup and create your account.
 - **WordPress:** in wp-admin go to Users → Profile → *Application Passwords*, create one, and paste it with the username and site URL on the Integrations page. Posts get a matching category (falling back to "Blog"), tags, a featured image, and Rank Math SEO title/description/focus keyword. Articles can be sent as drafts first.
 - **Shopify:** in Shopify admin go to Settings → Apps → *Develop apps*. Create an app with the `read_content` and `write_content` Admin API scopes, install it, and paste the Admin API access token plus the `.myshopify.com` domain.
 - **Custom-built site (Next.js, Laravel, anything):** on the Integrations page enter the article URL pattern (e.g. `https://example.com/blog/{slug}`) and, optionally, a webhook URL, then copy the Content API key and webhook secret (shown once). The site reads published articles from `GET /api/public/v1/articles` and `GET /api/public/v1/articles/{slug}` with `Authorization: Bearer vsk_…`. The webhook gets a signed `article.published` / `article.draft` POST (`X-Venner-Signature: t=…,v1=HMAC-SHA256("t.body")`); reply with `{"url": "…"}` to set the live URL. Ready-to-paste Next.js and Laravel code is on the Integrations page.
-- **Google Business Profile:** (1) in Google Cloud enable *My Business Account Management API*, *My Business Business Information API* and *Google My Business API*; (2) request API access for the project at https://developers.google.com/my-business/content/prereqs (Google approves within a few days; until then calls fail with a clear message); (3) add `${APP_URL}/api/integrations/gbp/callback` as an authorised redirect URI on the same OAuth client used for Search Console; (4) click *Connect with Google* on the Integrations page and sign in with the account that manages the listing.
+- **Google Business Profile:** (1) in Google Cloud enable *My Business Account Management API*, *My Business Business Information API*, *Google My Business API* and *Business Profile Performance API* (for Maps insights); (2) request API access for the project at https://developers.google.com/my-business/content/prereqs (Google approves within a few days; until then calls fail with a clear message); (3) add `${APP_URL}/api/integrations/gbp/callback` as an authorised redirect URI on the same OAuth client used for Search Console; (4) click *Connect with Google* on the Integrations page and sign in with the account that manages the listing.
 - **Search Console:** click *Connect with Google* and sign in with an account that has access to the site's property.
 
 ## Deploying
@@ -99,5 +106,6 @@ One article is one brief call plus one writing call, about 15–20k tokens in to
 
 - Automatic posting to Facebook / Instagram / LinkedIn (needs Meta and LinkedIn app review); carousels
 - AI hero images for articles
+- Ask AI chat, Stripe billing and plans (phase C)
 - Webflow / Wix / Framer publishing (custom sites are supported via the Content API + webhook)
-- Stripe billing and plans, team invites, white-label for agencies
+- Team invites, white-label for agencies

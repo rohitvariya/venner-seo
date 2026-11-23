@@ -9,7 +9,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   const auth = Buffer.from(
     `${process.env.DATAFORSEO_LOGIN}:${process.env.DATAFORSEO_PASSWORD}`,
   ).toString("base64");
-  const res = await fetch(`https://api.dataforseo.com/v3${path}`, {
+  const res = await fetch(`${process.env.DATAFORSEO_API ?? "https://api.dataforseo.com/v3"}${path}`, {
     method: "POST",
     headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -55,4 +55,17 @@ export async function organicResults(query: string, locationName: string, langua
     { keyword: query, location_name: locationName, language_code: languageCode, depth: 20 },
   ]);
   return (result?.[0]?.items ?? []).filter((i) => i.type === "organic" && i.domain);
+}
+
+export type MapsResult = { rank: number; title: string; domain: string | null; cid: string | null };
+
+/** Google Maps results as seen from one point (lat,lng), used for geo-grid rank tracking. */
+export async function mapsResults(keyword: string, lat: number, lng: number, languageCode = "en", zoom = 15): Promise<MapsResult[]> {
+  type Item = { type: string; rank_absolute?: number; rank_group?: number; title?: string; domain?: string | null; cid?: string | null };
+  const result = await post<{ items?: Item[] }[]>("/serp/google/maps/live/advanced", [
+    { keyword, location_coordinate: `${lat.toFixed(6)},${lng.toFixed(6)},${zoom}z`, language_code: languageCode, depth: 20 },
+  ]);
+  return (result?.[0]?.items ?? [])
+    .filter((i) => i.type === "maps_search")
+    .map((i, n) => ({ rank: i.rank_group ?? i.rank_absolute ?? n + 1, title: i.title ?? "", domain: i.domain ?? null, cid: i.cid ?? null }));
 }

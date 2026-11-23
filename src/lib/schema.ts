@@ -102,6 +102,11 @@ export const sites = pgTable(
     socialChannels: jsonb("social_channels").$type<PostChannel[]>().notNull().default(["google", "facebook", "instagram", "linkedin"]),
     autoReplyPositive: boolean("auto_reply_positive").notNull().default(false),
     photoUsage: text("photo_usage").$type<"always" | "relevant" | "never">().notNull().default("relevant"),
+    // Map position of the business (from Google Business Profile or geocoded address), for the geo-grid.
+    lat: doublePrecision("lat"),
+    lng: doublePrecision("lng"),
+    // Public id for the testimonials widget embedded on the business's website.
+    widgetKey: text("widget_key"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -335,6 +340,7 @@ export const reviews = pgTable(
     replyText: text("reply_text"), // the live reply on Google
     repliedAt: timestamp("replied_at", { withTimezone: true }),
     draftReply: text("draft_reply"), // AI draft waiting for approval
+    isTestimonial: boolean("is_testimonial").notNull().default(false), // shown in the website widget
     error: text("error"),
     createdAt: createdAt(),
   },
@@ -357,6 +363,104 @@ export const photos = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index("photos_site").on(t.siteId)],
+);
+
+// ---- Results & Grow (phase B) ----
+
+export type AuditSeverity = "critical" | "warning" | "notice";
+export type AuditIssue = {
+  id: string; // stable check id, e.g. "missing-meta-description"
+  severity: AuditSeverity;
+  title: string; // "7 pages have no meta description"
+  why: string; // why it matters, in plain words
+  fix: string; // how to fix it
+  pages: string[]; // affected URLs (capped)
+  count: number; // number of affected pages/items
+};
+export type AuditStats = {
+  pagesChecked: number;
+  avgResponseMs: number | null;
+  https: boolean;
+  sitemap: boolean;
+  robots: boolean;
+  mobileScore?: number | null; // PageSpeed Insights performance, 0-100
+  lcpMs?: number | null;
+  cls?: number | null;
+  passed: string[]; // titles of checks that passed
+};
+
+/** Website health audits: score out of 100 and the problems found. */
+export const siteAudits = pgTable(
+  "site_audits",
+  {
+    id: id(),
+    siteId: text("site_id").notNull().references(() => sites.id, { onDelete: "cascade" }),
+    status: jobStatusEnum("status").notNull().default("QUEUED"),
+    score: integer("score"),
+    issues: jsonb("issues").$type<AuditIssue[]>().notNull().default([]),
+    stats: jsonb("stats").$type<AuditStats | null>(),
+    error: text("error"),
+    createdAt: createdAt(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [index("site_audits_site").on(t.siteId, t.createdAt)],
+);
+
+/** Daily Google Maps / Business Profile performance (Business Profile Performance API). */
+export const gbpDailyMetrics = pgTable(
+  "gbp_daily_metrics",
+  {
+    id: id(),
+    siteId: text("site_id").notNull().references(() => sites.id, { onDelete: "cascade" }),
+    date: date("date").notNull(),
+    searchViews: integer("search_views").notNull().default(0), // profile shown on Google Search
+    mapsViews: integer("maps_views").notNull().default(0), // profile shown on Google Maps
+    calls: integer("calls").notNull().default(0),
+    directions: integer("directions").notNull().default(0),
+    websiteClicks: integer("website_clicks").notNull().default(0),
+    messages: integer("messages").notNull().default(0),
+  },
+  (t) => [uniqueIndex("gbp_daily_site_date").on(t.siteId, t.date)],
+);
+
+export type GridPoint = { lat: number; lng: number; rank: number | null; top: string[] };
+
+/** Geo-grid scans: where the business ranks in the Google Maps results across its area. */
+export const geoGridScans = pgTable(
+  "geo_grid_scans",
+  {
+    id: id(),
+    siteId: text("site_id").notNull().references(() => sites.id, { onDelete: "cascade" }),
+    keyword: text("keyword").notNull(),
+    centerLat: doublePrecision("center_lat").notNull(),
+    centerLng: doublePrecision("center_lng").notNull(),
+    radiusKm: doublePrecision("radius_km").notNull(),
+    size: integer("size").notNull(), // grid is size x size
+    points: jsonb("points").$type<GridPoint[]>().notNull().default([]),
+    avgRank: doublePrecision("avg_rank"), // average over points where found (not found counts as 21)
+    top3Share: doublePrecision("top3_share"), // share of points where the business is in the top 3
+    status: jobStatusEnum("status").notNull().default("QUEUED"),
+    error: text("error"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("geo_grid_site").on(t.siteId, t.createdAt)],
+);
+
+export type InsightKind = "plan" | "report" | "conversations" | "directories" | "events" | "maps-keywords" | "profile";
+
+/** AI-made Grow outputs (30-day plan, growth report, conversations, directories, upcoming events). Latest per kind wins. */
+export const siteInsights = pgTable(
+  "site_insights",
+  {
+    id: id(),
+    siteId: text("site_id").notNull().references(() => sites.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<InsightKind>().notNull(),
+    status: jobStatusEnum("status").notNull().default("QUEUED"),
+    data: jsonb("data").$type<Record<string, unknown> | null>(),
+    error: text("error"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("site_insights_site_kind").on(t.siteId, t.kind, t.createdAt)],
 );
 
 // ---- Relations (for db.query.* with `with`) ----
@@ -400,6 +504,9 @@ export const articlesRelations = relations(articles, ({ one }) => ({
 export const integrationsRelations = relations(integrations, ({ one }) => ({ site: one(sites, { fields: [integrations.siteId], references: [sites.id] }) }));
 
 export type Site = typeof sites.$inferSelect;
+export type SiteAudit = typeof siteAudits.$inferSelect;
+export type GeoGridScan = typeof geoGridScans.$inferSelect;
+export type SiteInsight = typeof siteInsights.$inferSelect;
 export type SocialPost = typeof socialPosts.$inferSelect;
 export type Review = typeof reviews.$inferSelect;
 export type Service = typeof services.$inferSelect;

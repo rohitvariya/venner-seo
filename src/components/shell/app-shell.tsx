@@ -35,7 +35,7 @@ export function AppShell(props: {
   const rail: NavItem[] = [
     { href: base, label: "Home", icon: Home, match: [base + "$"], badge: counts.todo },
     { href: `${base}/content`, label: "Content", icon: FileText, match: ["/content", "/keywords", "/posts"], badge: counts.review },
-    { href: `${base}/reviews`, label: "Reviews", icon: Star, match: ["/reviews"], badge: counts.reviews },
+    { href: `${base}/reviews`, label: "Reviews", icon: Star, match: ["/reviews", "/profile"], badge: counts.reviews },
     { href: `${base}/results`, label: "Results", icon: BarChart3, match: ["/results"] },
     { href: `${base}/grow`, label: "Grow", icon: TrendingUp, match: ["/grow"] },
     { href: `${base}/integrations`, label: "Connect", icon: Plug, match: ["/integrations"] },
@@ -152,6 +152,7 @@ export function AppShell(props: {
 function defaultTab(path: string, k: string) {
   if (k !== "tab") return null;
   if (path.endsWith("/content")) return "calendar";
+  if (path.endsWith("/reviews")) return "todo";
   if (path.endsWith("/business")) return "customers";
   return null;
 }
@@ -184,11 +185,28 @@ function subNav(base: string, section: string): { href: string; label: string; e
         { href: `${base}/keywords`, label: "Keywords" },
       ];
     case "Reviews":
-      return [{ href: `${base}/reviews`, label: "Google reviews" }];
+      return [
+        { href: `${base}/reviews?tab=todo`, label: "Google reviews", exact: true },
+        { href: `${base}/reviews?tab=testimonials`, label: "Testimonials", exact: true },
+        { href: `${base}/profile`, label: "Google profile" },
+      ];
     case "Results":
-      return [{ href: `${base}/results`, label: "Google Search" }, { href: `${base}/grow`, label: "AI answers" }];
+      return [
+        { href: `${base}/results`, label: "Google Search", exact: true },
+        { href: `${base}/results/health`, label: "Website health" },
+        { href: `${base}/results/maps`, label: "Google Maps" },
+        { href: `${base}/grow`, label: "AI answers" },
+      ];
     case "Grow":
-      return [{ href: `${base}/grow`, label: "AI visibility & ideas" }];
+      return [
+        { href: `${base}/grow`, label: "AI visibility", exact: true },
+        { href: `${base}/grow/plan`, label: "30-day plan" },
+        { href: `${base}/grow/ideas`, label: "Ideas" },
+        { href: `${base}/grow/conversations`, label: "Conversations" },
+        { href: `${base}/grow/directories`, label: "Directories" },
+        { href: `${base}/grow/events`, label: "Events & holidays" },
+        { href: `${base}/grow/report`, label: "Growth report" },
+      ];
     case "Connect":
       return [{ href: `${base}/integrations`, label: "Connections" }];
     case "Business":
@@ -211,7 +229,7 @@ function CommandPalette({ base, items, onClose }: { base: string; items: { label
   const pages = [
     ["Home", base], ["Content calendar", `${base}/content`], ["Articles", `${base}/content?tab=articles`],
     ["Social posts", `${base}/content?tab=social`], ["Google posts", `${base}/content?tab=google`], ["Photos", `${base}/content?tab=photos`],
-    ["Keywords", `${base}/keywords`], ["Reviews", `${base}/reviews`], ["Results", `${base}/results`], ["Grow: AI visibility", `${base}/grow`],
+    ["Keywords", `${base}/keywords`], ["Reviews", `${base}/reviews`], ["Testimonials", `${base}/reviews?tab=testimonials`], ["Google profile", `${base}/profile`], ["Results", `${base}/results`], ["Website health", `${base}/results/health`], ["Google Maps insights", `${base}/results/maps`], ["Grow: AI visibility", `${base}/grow`], ["30-day plan", `${base}/grow/plan`], ["Content ideas", `${base}/grow/ideas`], ["Conversations", `${base}/grow/conversations`], ["Directories", `${base}/grow/directories`], ["Events & holidays", `${base}/grow/events`], ["Growth report", `${base}/grow/report`],
     ["Connections", `${base}/integrations`], ["Settings", `${base}/settings`], ["Business Blueprint", `${base}/business`],
   ].map(([label, href]) => ({ label, href, kind: "Page" }));
   const all = [...pages, ...items];

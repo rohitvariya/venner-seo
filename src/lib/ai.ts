@@ -83,3 +83,46 @@ export async function text(opts: { system: string; prompt: string; maxTokens?: n
     .join("")
     .trim();
 }
+
+/**
+ * Like structured(), but Claude may search the web first (for live facts: forum threads,
+ * directory listings, holiday dates). Falls back to no web search if it's unavailable.
+ */
+export async function researchStructured<T>(opts: {
+  system: string;
+  prompt: string;
+  schemaName: string;
+  schema: Record<string, unknown>;
+  maxTokens?: number;
+  maxSearches?: number;
+}): Promise<T> {
+  const submit: Anthropic.Tool = {
+    name: opts.schemaName,
+    description: "Submit the final result in this exact structure once your research is done. Call exactly once.",
+    input_schema: opts.schema as Anthropic.Tool.InputSchema,
+  };
+  const search = { type: "web_search_20250305", name: "web_search", max_uses: opts.maxSearches ?? 5 } as unknown as Anthropic.Tool;
+  const system = `${opts.system}\n\nUse web search where it helps, then deliver the answer by calling the \`${opts.schemaName}\` tool exactly once. Only include URLs you actually found.`;
+  const messages: Anthropic.MessageParam[] = [{ role: "user", content: opts.prompt }];
+  let tools: Anthropic.Tool[] = [submit, search];
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let res: Anthropic.Message;
+    try {
+      res = await anthropic().messages.create({ model: model(), max_tokens: opts.maxTokens ?? 6000, system, tools, tool_choice: { type: "auto" }, messages });
+    } catch (err) {
+      if (tools.length > 1 && /web_search|tool/i.test(String(err))) {
+        tools = [submit];
+        continue;
+      }
+      throw err;
+    }
+    const block = res.content.find((c) => c.type === "tool_use" && c.name === opts.schemaName);
+    if (block && block.type === "tool_use") return block.input as T;
+    const replyText = res.content.filter((c): c is Anthropic.TextBlock => c.type === "text").map((c) => c.text).join("");
+    const json = extractJson(replyText);
+    if (json && typeof json === "object") return json as T;
+    messages.push({ role: "assistant", content: res.content });
+    messages.push({ role: "user", content: `Now call the \`${opts.schemaName}\` tool with the result.` });
+  }
+  throw new Error("Claude did not return structured output");
+}

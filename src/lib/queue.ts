@@ -4,6 +4,10 @@ import IORedis from "ioredis";
 export const QUEUE_NAME = "venner-seo";
 
 export type JobName =
+  | "audit-site"
+  | "sync-gbp-metrics"
+  | "geo-grid"
+  | "make-insight"
   | "scan-site"
   | "plan-keywords"
   | "write-article"
@@ -17,7 +21,7 @@ export type JobName =
   | "generate-posts"
   | "tick"; // periodic: publishes due scheduled articles, syncs GSC
 
-export type JobData = { siteId?: string; articleId?: string; postId?: string; draft?: boolean };
+export type JobData = { siteId?: string; articleId?: string; postId?: string; draft?: boolean; auditId?: string; scanId?: string; insightId?: string };
 
 let connection: IORedis | null = null;
 export function redis() {

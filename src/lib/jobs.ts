@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull, lte, ne, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, lte, ne, notInArray, sql } from "drizzle-orm";
 import { db, schema } from "./db";
 import { crawlSite } from "./crawl";
 import { analyzeBusiness, profileContext } from "./seo/profile";
@@ -223,9 +223,52 @@ export async function writeArticleJob(articleId: string) {
       })
       .where(eq(articles.id, articleId));
     if (article.keywordId) await db.update(keywords).set({ status: "USED" }).where(eq(keywords.id, article.keywordId));
+    try {
+      await ensureFeaturedImage({ id: article.id, siteId: site.id, title: brief.title, heroImageUrl: article.heroImageUrl, site }, keyword);
+    } catch (err) {
+      console.error("Featured image failed, continuing:", err);
+    }
   } catch (err) {
     await db.update(articles).set({ status: "FAILED", error: errMsg(err) }).where(eq(articles.id, articleId));
     throw err;
+  }
+}
+
+/**
+ * The article's featured image: the one already set, else the business's own photo that fits,
+ * else a stock photo. Saved on the article so cards and the calendar show it before publishing.
+ */
+export async function ensureFeaturedImage(
+  article: { id: string; siteId: string; title: string; heroImageUrl: string | null; site: { photoUsage: "always" | "relevant" | "never" } },
+  keyword: string | null,
+): Promise<{ url: string; alt: string; caption?: string } | null> {
+  if (article.heroImageUrl) return { url: article.heroImageUrl, alt: article.title };
+  const own = await pickPhoto(article.siteId, `${keyword ?? ""} ${article.title}`, article.site.photoUsage);
+  let image: { url: string; alt: string; caption?: string } | null = own;
+  if (!image) {
+    try {
+      image = await findStockPhoto(keyword ?? article.title);
+    } catch (err) {
+      console.error("Stock photo lookup failed:", err);
+    }
+  }
+  if (image) await db.update(articles).set({ heroImageUrl: image.url }).where(eq(articles.id, article.id));
+  return image;
+}
+
+/** Gives a few unpublished articles without an image one (runs from the tick). */
+export async function backfillImages(limit = 5) {
+  const list = await db.query.articles.findMany({
+    where: and(isNull(articles.heroImageUrl), inArray(articles.status, ["REVIEW", "SCHEDULED", "APPROVED"])),
+    with: { site: true, keyword: true },
+    limit,
+  });
+  for (const a of list) {
+    try {
+      await ensureFeaturedImage(a, a.keyword?.phrase ?? null);
+    } catch (err) {
+      console.error("Image backfill failed:", err);
+    }
   }
 }
 
@@ -251,29 +294,7 @@ export async function publishArticleJob(articleId: string, opts: { draft?: boole
     const brief = article.brief as Brief | null;
     const keyword = (await db.query.keywords.findFirst({ where: eq(keywords.id, article.keywordId ?? "") }))?.phrase ?? null;
 
-    // Featured image: the one set in the editor, else a stock photo for the keyword (if Unsplash is configured).
-    let featuredImage: { url: string; alt: string; caption?: string } | null = article.heroImageUrl
-      ? { url: article.heroImageUrl, alt: article.title }
-      : null;
-    if (!featuredImage) {
-      // The business's own photos first, then a stock photo.
-      const own = await pickPhoto(article.siteId, `${keyword ?? ""} ${article.title}`, article.site.photoUsage);
-      if (own) {
-        featuredImage = own;
-        await db.update(articles).set({ heroImageUrl: own.url }).where(eq(articles.id, articleId));
-      }
-    }
-    if (!featuredImage) {
-      try {
-        const photo = await findStockPhoto(keyword ?? article.title);
-        if (photo) {
-          featuredImage = photo;
-          await db.update(articles).set({ heroImageUrl: photo.url }).where(eq(articles.id, articleId));
-        }
-      } catch (err) {
-        console.error("Stock photo lookup failed:", err);
-      }
-    }
+    const featuredImage = await ensureFeaturedImage(article, keyword);
 
     if (integration.type === "CUSTOM") {
       await publishToCustomSite(articleId, integration.config as CustomConfig, integration.secret, keyword, draft);
@@ -412,6 +433,13 @@ export async function tick() {
   await queueWeeklyVisibility();
   const { socialTick } = await import("./social/jobs");
   await socialTick();
+  await backfillImages();
+  const { queueWeeklyAudits } = await import("./audit");
+  await queueWeeklyAudits();
+  const { queueWeeklyGeoGrids } = await import("./maps/jobs");
+  await queueWeeklyGeoGrids();
+  const { queueGrowRoutines } = await import("./grow/jobs");
+  await queueGrowRoutines();
   const due = await db
     .update(articles)
     .set({ status: "PUBLISHING" })

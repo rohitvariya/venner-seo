@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/lib/db";
 import { createSession, destroySession, hashPassword, requireSite, requireUser, verifyPassword } from "@/lib/auth";
@@ -720,4 +720,135 @@ export async function savePhotoUsage(siteId: string, form: FormData) {
   const v = String(form.get("photoUsage"));
   if (v === "always" || v === "relevant" || v === "never") await db.update(sites).set({ photoUsage: v }).where(eq(sites.id, siteId));
   revalidatePath(`/sites/${siteId}/content`);
+}
+
+// ---- Results: website health ----
+
+export async function runSiteAudit(siteId: string) {
+  await requireSite(siteId);
+  const { startAudit } = await import("@/lib/audit");
+  await startAudit(siteId);
+  revalidatePath(`/sites/${siteId}/results/health`);
+}
+
+// ---- Results: Google Maps ----
+
+export async function syncMapsNow(siteId: string) {
+  await requireSite(siteId);
+  await enqueue("sync-gbp-metrics", { siteId });
+  revalidatePath(`/sites/${siteId}/results/maps`);
+}
+
+export async function runGeoGridScan(siteId: string, _prev: { error?: string; ok?: string } | undefined, form: FormData) {
+  await requireSite(siteId);
+  const keyword = String(form.get("keyword") ?? "").trim();
+  const size = [3, 5, 7].includes(Number(form.get("size"))) ? Number(form.get("size")) : 5;
+  const radiusKm = Math.min(25, Math.max(0.5, Number(form.get("radius")) || 3));
+  if (keyword.length < 3) return { error: "Enter the search you want to check, e.g. \"software company near me\"." };
+  try {
+    const { startGeoGrid } = await import("@/lib/maps/jobs");
+    await startGeoGrid(siteId, keyword, size, radiusKm);
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+  revalidatePath(`/sites/${siteId}/results/maps`);
+  return { ok: `Checking ${size * size} points. This takes about a minute.` };
+}
+
+// ---- Google profile ----
+
+export async function suggestGbpDescription(siteId: string, _prev: { error?: string; text?: string } | undefined) {
+  await requireSite(siteId);
+  try {
+    const { loadContext } = await import("@/lib/jobs");
+    const { text } = await import("@/lib/ai");
+    const { context, site } = await loadContext(siteId);
+    const out = await text({
+      system:
+        "You write Google Business Profile descriptions. 600-740 characters, plain text, no URLs, no phone numbers, no promotions or prices, no ALL CAPS, no emojis. First sentence: what the business is and where. Then main services, who it serves and what makes it different (only facts given). End with the area served.",
+      prompt: `${context}\n\nWrite the Google Business Profile description for ${site.businessName ?? site.domain}. Reply with the description only.`,
+      maxTokens: 600,
+    });
+    return { text: out.trim().replace(/^"|"$/g, "").slice(0, 750) };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function saveGbpDescription(siteId: string, _prev: { error?: string; ok?: string } | undefined, form: FormData) {
+  await requireSite(siteId);
+  const description = String(form.get("description") ?? "").trim();
+  if (description.length < 50) return { error: "Write at least 50 characters." };
+  if (description.length > 750) return { error: "Google allows up to 750 characters." };
+  try {
+    const { googleLocation } = await import("@/lib/social/jobs");
+    const g = await googleLocation(siteId);
+    if (!g) return { error: "Connect Google Business Profile first." };
+    const { updateDescription } = await import("@/lib/gbp");
+    await updateDescription(g.secret, g.loc.location, description);
+    await enqueue("sync-gbp-metrics", { siteId });
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+  revalidatePath(`/sites/${siteId}/profile`);
+  return { ok: "Updated on Google. It can take a few minutes to show." };
+}
+
+// ---- Testimonials ----
+
+export async function toggleTestimonial(siteId: string, reviewId: string) {
+  const { site } = await requireSite(siteId);
+  const r = await db.query.reviews.findFirst({ where: and(eq(schema.reviews.id, reviewId), eq(schema.reviews.siteId, siteId)) });
+  if (!r) return;
+  await db.update(schema.reviews).set({ isTestimonial: !r.isTestimonial }).where(eq(schema.reviews.id, reviewId));
+  if (!site.widgetKey) {
+    const { randomBytes } = await import("node:crypto");
+    await db.update(schema.sites).set({ widgetKey: `w_${randomBytes(9).toString("base64url")}` }).where(eq(schema.sites.id, siteId));
+  }
+  revalidatePath(`/sites/${siteId}/reviews`);
+}
+
+// ---- Grow extras ----
+
+export async function startGrow(siteId: string, kind: "plan" | "report" | "conversations" | "directories" | "events") {
+  await requireSite(siteId);
+  const { startInsight } = await import("@/lib/grow/jobs");
+  await startInsight(siteId, kind);
+  revalidatePath(`/sites/${siteId}/grow`, "layout");
+}
+
+export async function toggleGrowDone(siteId: string, kind: "plan" | "directories", itemId: string) {
+  await requireSite(siteId);
+  const { toggleDone } = await import("@/lib/grow/jobs");
+  await toggleDone(siteId, kind, itemId);
+  revalidatePath(`/sites/${siteId}/grow`, "layout");
+}
+
+/** Drafts a Google post for an upcoming occasion, scheduled the day before at 10:30. */
+export async function draftEventPost(siteId: string, ev: { date: string; name: string; idea: string }) {
+  const { site } = await requireSite(siteId);
+  const { loadContext } = await import("@/lib/jobs");
+  const { text: ai } = await import("@/lib/ai");
+  const { context } = await loadContext(siteId);
+  const body = await ai({
+    system:
+      "You write one Google Business Profile update (80-200 words, plain text, no hashtags, at most one emoji) for a local business, tied to an upcoming occasion. Warm and natural, not a hard sell. Never invent offers, discounts or prices. Output only the post text.",
+    prompt: `${context}\n\nOccasion: ${ev.name} on ${ev.date}.\nIdea: ${ev.idea}\n\nWrite the post.`,
+    maxTokens: 600,
+  });
+  const [y, m, d] = ev.date.split("-").map(Number);
+  let when = new Date(y, m - 1, d - 1, 10, 30);
+  if (when.getTime() < Date.now() + 3600_000) when = new Date(Date.now() + 3600_000);
+  await db.insert(schema.socialPosts).values({
+    siteId, channel: "google", text: body, link: `https://${site.domain}`, cta: "LEARN_MORE", status: "DRAFT", scheduledAt: when,
+  });
+  const row = await db.query.siteInsights.findFirst({
+    where: and(eq(schema.siteInsights.siteId, siteId), eq(schema.siteInsights.kind, "events"), eq(schema.siteInsights.status, "DONE")),
+    orderBy: desc(schema.siteInsights.createdAt),
+  });
+  if (row?.data) {
+    const data = row.data as { drafted?: string[] };
+    await db.update(schema.siteInsights).set({ data: { ...data, drafted: [...new Set([...(data.drafted ?? []), `${ev.date}|${ev.name}`])] } }).where(eq(schema.siteInsights.id, row.id));
+  }
+  revalidatePath(`/sites/${siteId}/grow`, "layout");
 }
