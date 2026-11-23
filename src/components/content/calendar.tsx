@@ -33,6 +33,8 @@ const STATUS: Record<string, { label: string; cls: string }> = {
 const CHANNEL: Record<string, string> = { google: "Google post", facebook: "Facebook", instagram: "Instagram", linkedin: "LinkedIn", x: "X" };
 
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+// Items carry UTC timestamps; place them on the viewer's local day.
+const dayOf = (at: string) => iso(new Date(at));
 
 export function Calendar({ siteId, items, view, anchor, filter }: {
   siteId: string;
@@ -47,7 +49,13 @@ export function Calendar({ siteId, items, view, anchor, filter }: {
   const [menu, setMenu] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [optimistic, move] = useOptimistic(items, (state, m: { id: string; day: string }) =>
-    state.map((i) => (i.id === m.id ? { ...i, at: `${m.day}T${i.at.slice(11)}` } : i)),
+    state.map((i) => {
+      if (i.id !== m.id) return i;
+      // Keep the local time of day, move to the new local day.
+      const old = new Date(i.at);
+      const [y, mo, d] = m.day.split("-").map(Number);
+      return { ...i, at: new Date(y, mo - 1, d, old.getHours(), old.getMinutes()).toISOString() };
+    }),
   );
 
   const a = new Date(`${anchor}T00:00:00`);
@@ -74,12 +82,12 @@ export function Calendar({ siteId, items, view, anchor, filter }: {
   const title = view === "week"
     ? `${days[0].toLocaleDateString("en-GB", { day: "numeric", month: "short" })} – ${days[6].toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`
     : a.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
-  const inRange = optimistic.filter((i) => days.some((d) => iso(d) === i.at.slice(0, 10)));
+  const inRange = optimistic.filter((i) => days.some((d) => iso(d) === dayOf(i.at)));
   const todayIso = iso(new Date());
 
   const drop = (day: string, id: string) => {
     const item = optimistic.find((i) => i.id === id);
-    if (!item || item.locked || item.at.slice(0, 10) === day) return;
+    if (!item || item.locked || dayOf(item.at) === day) return;
     setError(null);
     start(async () => {
       move({ id, day });
@@ -124,7 +132,7 @@ export function Calendar({ siteId, items, view, anchor, filter }: {
         <div className="grid grid-cols-7">
           {days.map((d) => {
             const key = iso(d);
-            const list = optimistic.filter((i) => i.at.slice(0, 10) === key).sort((x, y) => x.at.localeCompare(y.at));
+            const list = optimistic.filter((i) => dayOf(i.at) === key).sort((x, y) => x.at.localeCompare(y.at));
             const outside = view === "month" && d.getMonth() !== a.getMonth();
             return (
               <div key={key}

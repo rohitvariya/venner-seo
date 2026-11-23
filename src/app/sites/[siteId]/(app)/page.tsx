@@ -12,8 +12,9 @@ const TYPE_STYLE: Record<TodoType, string> = {
   idea: "bg-sky-50 text-sky-700",
 };
 
+// Local calendar day (not UTC), so items land on the same day the calendar shows.
 function dayKey(d: Date) {
-  return d.toISOString().slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 export default async function HomePage({ params, searchParams }: {
